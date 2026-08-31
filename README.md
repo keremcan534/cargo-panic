@@ -4,6 +4,8 @@ A mobile-first casual puzzle game by **BlackBlue Studios**.
 
 > Pack the warehouse without tipping the shelves.
 
+**[Play it here](https://keremcan534.github.io/cargo-panic/)**
+
 Packages arrive on a conveyor. Drag them onto the rack. Every crate pushes the
 rack sideways with `weight × distance from the middle × tier multiplier`, and if
 the two sides drift too far apart the whole thing goes over.
