@@ -1,0 +1,91 @@
+:root {
+  --bg-deep: #0d1117;
+  --bg-mid: #151d29;
+  --accent: #4da3ff;
+  --accent-warm: #f0a53c;
+  color-scheme: dark;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-deep);
+  overscroll-behavior: none;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  font-family: 'Trebuchet MS', 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+
+#app {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(120% 80% at 50% 0%, #1b2735 0%, var(--bg-deep) 60%, #070a0e 100%);
+}
+
+#game-root {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#game-root canvas {
+  display: block;
+  touch-action: none;
+}
+
+/* Pre-Phaser splash so the first paint is never a black void. */
+#boot-splash {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  background: var(--bg-deep);
+  z-index: 10;
+  transition: opacity 380ms ease;
+  pointer-events: none;
+}
+
+#boot-splash.hidden {
+  opacity: 0;
+}
+
+.boot-mark {
+  font-size: clamp(1.9rem, 9vw, 3.2rem);
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.boot-black {
+  color: #eef4ff;
+}
+
+.boot-blue {
+  color: var(--accent);
+}
+
+.boot-sub {
+  font-size: clamp(0.7rem, 3.4vw, 1rem);
+  letter-spacing: 0.62em;
+  color: #6d7f97;
+  padding-left: 0.62em;
+}
