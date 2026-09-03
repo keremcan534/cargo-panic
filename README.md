@@ -196,6 +196,46 @@ the search never costs a frame.
 
 ---
 
+## Rendering
+
+The game is authored in a fixed **720-wide logical space**, but that is not what
+it renders at. A phone at `devicePixelRatio` 3 gives the canvas roughly 1236
+real pixels across, so drawing at 720 and letting the browser stretch the result
+blurred every sprite and label by about 70%.
+
+So three things line up on the same scale:
+
+| | before | after |
+| --- | --- | --- |
+| canvas backing store | 720 x 1580 | **matches physical pixels** (1236 x 2712 on a DPR-3 phone) |
+| baked textures | 1x | **2x**, drawn back down |
+| `Phaser.Text` | 1x | **rasterised at the render scale** |
+
+Cameras are zoomed by the same factor
+([`useLogicalCamera`](src/game/render.ts)), so scene code — including
+`pointer.worldX` — still works in plain 720-wide units and never has to think
+about it. Text resolution is applied by listening for `ADDED_TO_SCENE` rather
+than remembering it at forty call sites.
+
+On top of that the main camera carries a cheap **ColorMatrix grade and
+vignette** (single-pass shaders on the existing render target), the warehouse is
+built in depth layers with real light pooling, and cargo carries edge occlusion
+and a grounded base so the flat front faces read as volume.
+
+Measured on a CPU-throttled Chrome at DPR 3, full resolution and post-processing:
+
+| CPU throttle | fps | p95 frame |
+| --- | --- | --- |
+| 1x | 144 (vsync) | 7.3 ms |
+| 4x (mid-range phone) | **63** | 17.1 ms |
+| 6x (low-end) | 38 | 28.1 ms |
+
+The post-processing costs about 1.4 fps of that — the engine is nowhere near
+being the limit, which is why the fix here was resolution and art direction
+rather than a different renderer.
+
+---
+
 ## Input
 
 Both cargo dragging and every button hit-test themselves from scene-level
@@ -261,6 +301,7 @@ src/
   game/
     config.ts              tuning constants
     layout.ts              responsive anchors (Phaser-free, shared with tooling)
+    render.ts              render scale, logical camera, camera grade
     textures.ts            every sprite, drawn into canvas textures at boot
     scenes/                Boot, Splash, Menu, LevelSelect, Game
     systems/               Balance, Placement, Hazard, Solver, Rng, RunManager,

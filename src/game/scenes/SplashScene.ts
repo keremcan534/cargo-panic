@@ -4,6 +4,7 @@
 
 import Phaser from 'phaser';
 import { FONT, HEX } from '../config';
+import { useLogicalCamera } from '../render';
 
 export class SplashScene extends Phaser.Scene {
   private done = false;
@@ -13,7 +14,7 @@ export class SplashScene extends Phaser.Scene {
   }
 
   create() {
-    const { width: w, height: h } = this.scale;
+    const { w, h } = useLogicalCamera(this);
     this.cameras.main.setBackgroundColor('#0d1117');
 
     const mark = this.add.container(w / 2, h / 2 - 10);

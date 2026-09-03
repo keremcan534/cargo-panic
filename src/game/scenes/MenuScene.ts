@@ -6,10 +6,11 @@
 import Phaser from 'phaser';
 import { COLORS, FONT, HEX, PKG_H } from '../config';
 import { TOTAL_LEVELS } from '../levels/levels';
+import { applyCameraGrade, useLogicalCamera } from '../render';
 import { audio } from '../systems/AudioManager';
 import { progress } from '../systems/ProgressManager';
 import { formatScore, newRun, seedFromUrl } from '../systems/RunManager';
-import { pkgTextureKey } from '../textures';
+import { pkgTextureKey, TEX_SCALE } from '../textures';
 import { drawBackdrop } from '../ui/Backdrop';
 import { Button, IconButton } from '../ui/Button';
 
@@ -21,11 +22,16 @@ export class MenuScene extends Phaser.Scene {
   }
 
   create() {
-    const w = this.scale.width;
-    const h = this.scale.height;
+    const { w, h } = useLogicalCamera(this);
     this.cameras.main.fadeIn(260, 13, 17, 23);
+    applyCameraGrade(this);
 
-    drawBackdrop(this, w, h, { floorY: h * 0.8, lamps: true, silhouettes: true });
+    drawBackdrop(this, w, h, {
+      floorY: h * 0.8,
+      lamps: true,
+      silhouettes: true,
+      lightPool: true,
+    });
     this.buildHeroRack(w, h * 0.5);
 
     // --- wordmark -----------------------------------------------------------
@@ -76,7 +82,7 @@ export class MenuScene extends Phaser.Scene {
     // --- progress -----------------------------------------------------------
     const done = progress.completedCount();
     const stars = progress.totalStars();
-    const chipY = h - 372;
+    const chipY = h - 388;
     const g = this.add.graphics().setDepth(20);
     g.fillStyle(0x0b1017, 0.8);
     g.fillRoundedRect(w / 2 - 200, chipY - 26, 400, 52, 26);
@@ -85,7 +91,7 @@ export class MenuScene extends Phaser.Scene {
 
     this.add
       .image(w / 2 - 118, chipY, 'star_small_on')
-      .setScale(0.72)
+      .setScale(0.72 / TEX_SCALE)
       .setDepth(21);
     this.add
       .text(w / 2 - 92, chipY, `${stars} / ${TOTAL_LEVELS * 3}`, {
@@ -110,9 +116,9 @@ export class MenuScene extends Phaser.Scene {
     const playLabel = done === 0 ? 'PLAY' : `CONTINUE - LEVEL ${progress.unlocked}`;
     new Button(this, {
       x: w / 2,
-      y: h - 286,
+      y: h - 304,
       width: 470,
-      height: 84,
+      height: 80,
       label: playLabel,
       style: 'primary',
       fontSize: done === 0 ? 38 : 30,
@@ -123,10 +129,10 @@ export class MenuScene extends Phaser.Scene {
     this.add
       .text(
         w / 2,
-        h - 214,
+        h - 244,
         endless.runs === 0
-          ? 'PROCEDURAL WAVES - ONE MISTAKE ENDS THE RUN'
-          : `BEST ${formatScore(endless.bestScore)}  -  REACHED WAVE ${endless.bestWave}`,
+          ? 'PROCEDURAL WAVES - ONE MISTAKE ENDS A RUN'
+          : `BEST ${formatScore(endless.bestScore)}  -  WAVE ${endless.bestWave}`,
         {
           fontFamily: FONT,
           fontSize: '16px',
@@ -139,7 +145,7 @@ export class MenuScene extends Phaser.Scene {
 
     new Button(this, {
       x: w / 2,
-      y: h - 172,
+      y: h - 190,
       width: 470,
       height: 74,
       label: 'ENDLESS SHIFT',
@@ -150,9 +156,9 @@ export class MenuScene extends Phaser.Scene {
 
     new Button(this, {
       x: w / 2,
-      y: h - 82,
+      y: h - 96,
       width: 470,
-      height: 62,
+      height: 60,
       label: 'LEVEL SELECT',
       style: 'secondary',
       fontSize: 26,
@@ -232,7 +238,7 @@ export class MenuScene extends Phaser.Scene {
     for (const [type, x, sy] of cargo) {
       const img = this.add
         .image(x, sy - PKG_H / 2, pkgTextureKey(type as never))
-        .setScale(0.86);
+        .setScale(0.86 / TEX_SCALE);
       c.add(img);
     }
 

@@ -10,8 +10,10 @@ import { audio } from '../systems/AudioManager';
 import { haptics } from '../systems/Haptics';
 import { progress } from '../systems/ProgressManager';
 import { gridGeometry } from '../layout';
+import { applyCameraGrade, useLogicalCamera } from '../render';
 import { registerTap, TAP_LAYER } from '../ui/TapManager';
 import type { Tappable } from '../ui/TapManager';
+import { TEX_SCALE } from '../textures';
 import { drawBackdrop } from '../ui/Backdrop';
 import { Button, IconButton } from '../ui/Button';
 
@@ -24,9 +26,9 @@ export class LevelSelectScene extends Phaser.Scene {
   }
 
   create() {
-    const w = this.scale.width;
-    const h = this.scale.height;
+    const { w, h } = useLogicalCamera(this);
     this.cameras.main.fadeIn(220, 13, 17, 23);
+    applyCameraGrade(this);
     drawBackdrop(this, w, h);
 
     this.add
@@ -145,7 +147,7 @@ export class LevelSelectScene extends Phaser.Scene {
     for (let s = 0; s < 3; s++) {
       this.add
         .image(x + (s - 1) * 26, y + 26, s < stars ? 'star_small_on' : 'star_small_off')
-        .setScale(0.66)
+        .setScale(0.66 / TEX_SCALE)
         .setDepth(11);
     }
 

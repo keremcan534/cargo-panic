@@ -7,6 +7,7 @@
 import Phaser from 'phaser';
 import { COLORS, FONT, HEX, PKG_H } from '../config';
 import type { Layout } from '../layout';
+import { TEX_SCALE } from '../textures';
 
 /** Preview scale for the "up next" tray. */
 export const PREVIEW_SCALE = 0.5;
@@ -48,6 +49,7 @@ export class Conveyor {
       .tileSprite(BELT_X0, surface, BELT_X1 - BELT_X0, h, 'belt_tile')
       .setOrigin(0, 0)
       .setDepth(DEPTH);
+    this.belt.setTileScale(1 / TEX_SCALE, 1 / TEX_SCALE);
 
     const trim = scene.add.graphics().setDepth(DEPTH + 1);
     trim.fillStyle(COLORS.frameLight, 1);

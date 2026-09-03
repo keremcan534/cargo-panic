@@ -5,15 +5,7 @@
  * hard-coding y values.
  */
 
-import {
-  GAME_H_DEFAULT,
-  GAME_H_MAX,
-  GAME_H_MIN,
-  GAME_W,
-  PKG_H,
-  SHELF_SPACING,
-  SLOT_W,
-} from './config';
+import { GAME_W, PKG_H, SHELF_SPACING, SLOT_W } from './config';
 
 export interface Layout {
   w: number;
@@ -31,15 +23,6 @@ export interface Layout {
   hintY: number;
   /** Uniform scale applied to the rack so short racks still fill the screen. */
   rackScale: number;
-}
-
-/** Logical stage height for the current window, clamped to sane phone ratios. */
-export function stageHeight(): number {
-  const vw = window.innerWidth || GAME_W;
-  const vh = window.innerHeight || GAME_H_DEFAULT;
-  if (vw <= 0 || vh <= 0) return GAME_H_DEFAULT;
-  const ideal = Math.round((GAME_W * vh) / vw);
-  return Math.max(GAME_H_MIN, Math.min(GAME_H_MAX, ideal));
 }
 
 /** Vertical extent of a rack above and below its base line, at scale 1. */

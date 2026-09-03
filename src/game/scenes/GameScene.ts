@@ -10,6 +10,7 @@
 import Phaser from 'phaser';
 import { COLORS, FONT, GRACE_MS, HEX, PKG_H, TOUCH_LIFT, WIN_SETTLE_MS } from '../config';
 import { computeLayout } from '../layout';
+import { applyCameraGrade, useLogicalCamera } from '../render';
 import type { Layout } from '../layout';
 import { Conveyor, PREVIEW_SCALE } from '../entities/Conveyor';
 import { CargoPackage } from '../entities/Package';
@@ -141,16 +142,18 @@ export class GameScene extends Phaser.Scene {
   }
 
   create() {
-    const h = this.scale.height;
+    const { h } = useLogicalCamera(this);
     const maxSlots = Math.max(...this.level.shelves.map((s) => s.slots));
     this.layout = computeLayout(h, this.level.shelves.length, maxSlots);
     this.board = new PlacementSystem(this.level);
     this.hazards = new HazardSystem(this.level, this.graceScale);
 
     this.cameras.main.fadeIn(200, 13, 17, 23);
+    applyCameraGrade(this);
     drawBackdrop(this, this.layout.w, h, {
       floorY: this.layout.rackBaseY + 56 * this.layout.rackScale,
       silhouettes: true,
+      lightPool: true,
     });
 
     this.rack = new Rack(
@@ -161,6 +164,19 @@ export class GameScene extends Phaser.Scene {
       this.layout.rackScale,
     );
     this.rack.container.setDepth(10);
+
+    // Grounds the rack on the floor rather than leaving it floating in the
+    // light pool.
+    this.add
+      .image(
+        this.layout.w / 2,
+        this.layout.rackBaseY + 58 * this.layout.rackScale,
+        'fx_glow',
+      )
+      .setDisplaySize(this.rack.halfWidth * 2.6 * this.layout.rackScale, 86)
+      .setDepth(6)
+      .setTint(0x000000)
+      .setAlpha(0.6);
 
     this.conveyor = new Conveyor(this, this.layout);
     this.beltHighlight = this.add.graphics().setDepth(22);

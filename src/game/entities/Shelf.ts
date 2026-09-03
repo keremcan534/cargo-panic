@@ -126,27 +126,50 @@ export class Shelf {
     g.fillRect(-rackHalfW, y + 1, rackHalfW - half + 2, th - 3);
     g.fillRect(half - 2, y + 1, rackHalfW - half + 2, th - 3);
 
-    // Visible top face, peeking out from behind the cargo.
-    g.fillStyle(COLORS.shelfTop, 1);
-    g.beginPath();
-    g.moveTo(-half, y);
-    g.lineTo(-half + 9, y - 6);
-    g.lineTo(half - 9, y - 6);
-    g.lineTo(half, y);
-    g.closePath();
-    g.fillPath();
+    // Visible top face, peeking out from behind the cargo. Graded from the
+    // lamps at the back towards the lip at the front.
+    const inset = 9;
+    const depth = 6;
+    for (let i = 0; i < depth; i++) {
+      const t = i / depth;
+      g.fillStyle(Phaser.Display.Color.Interpolate.ColorWithColor(
+        Phaser.Display.Color.IntegerToColor(COLORS.shelfTopLit),
+        Phaser.Display.Color.IntegerToColor(COLORS.shelfTop),
+        depth,
+        i,
+      ).color, 1);
+      const w0 = inset * (1 - t);
+      g.fillRect(-half + w0, y - depth + i, this.width - w0 * 2, 1.2);
+    }
 
-    // Front face, banded to fake a gradient.
-    g.fillStyle(COLORS.shelfFace, 1);
-    g.fillRoundedRect(-half, y, this.width, th, 4);
-    g.fillStyle(COLORS.shelfDark, 1);
-    g.fillRoundedRect(-half, y + th * 0.55, this.width, th * 0.45, 4);
-    g.fillStyle(0xffffff, 0.1);
-    g.fillRect(-half + 4, y + 2, this.width - 8, 2);
+    // Front face, banded into a smooth vertical gradient.
+    const bands = 6;
+    for (let i = 0; i < bands; i++) {
+      g.fillStyle(Phaser.Display.Color.Interpolate.ColorWithColor(
+        Phaser.Display.Color.IntegerToColor(COLORS.shelfFace),
+        Phaser.Display.Color.IntegerToColor(COLORS.shelfDark),
+        bands,
+        i,
+      ).color, 1);
+      g.fillRect(-half, y + (th / bands) * i, this.width, th / bands + 0.6);
+    }
+
+    // Specular lip along the top edge, and a dark seam under the top face.
+    g.fillStyle(0x000000, 0.35);
+    g.fillRect(-half, y, this.width, 1.5);
+    g.fillStyle(0xdfeaf7, 0.5);
+    g.fillRect(-half + 3, y + 1.5, this.width - 6, 1.8);
+
+    // Rounded end caps so the plank does not read as a bare rectangle.
+    g.fillStyle(COLORS.frameLight, 1);
+    g.fillRoundedRect(-half - 2, y + 1, 5, th - 2, 2);
+    g.fillRoundedRect(half - 3, y + 1, 5, th - 2, 2);
 
     // Drop shadow cast onto the tier below.
-    g.fillStyle(0x000000, 0.28);
-    g.fillRect(-half + 6, y + th, this.width - 12, 5);
+    g.fillStyle(0x000000, 0.34);
+    g.fillRect(-half + 6, y + th, this.width - 12, 4);
+    g.fillStyle(0x000000, 0.16);
+    g.fillRect(-half + 10, y + th + 4, this.width - 20, 4);
 
     if (this.def.locked) this.drawSealed();
   }

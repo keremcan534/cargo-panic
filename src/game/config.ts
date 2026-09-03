@@ -54,6 +54,7 @@ export const COLORS = {
   frameDark: 0x2c3644,
   frameEdge: 0x7d8fa8,
   shelfTop: 0x6f8098,
+  shelfTopLit: 0x8b9db6,
   shelfFace: 0x3d4a5c,
   shelfDark: 0x27303d,
   panel: 0x151d29,

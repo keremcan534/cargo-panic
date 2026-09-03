@@ -8,6 +8,7 @@
 
 import Phaser from 'phaser';
 import { COLORS } from '../config';
+import { TEX_SCALE } from '../textures';
 
 export class EffectsManager {
   private dustFx: Phaser.GameObjects.Particles.ParticleEmitter;
@@ -30,7 +31,7 @@ export class EffectsManager {
         lifespan: 520,
         speed: { min: 26, max: 96 },
         angle: { min: 200, max: 340 },
-        scale: { start: 0.5, end: 0 },
+        scale: { start: 0.5 / TEX_SCALE, end: 0 },
         alpha: { start: 0.5, end: 0 },
         gravityY: 110,
         tint: 0xd8c6a8,
@@ -42,7 +43,7 @@ export class EffectsManager {
       .particles(0, 0, 'fx_chip', {
         lifespan: 420,
         speed: { min: 90, max: 260 },
-        scale: { start: 0.9, end: 0 },
+        scale: { start: 0.9 / TEX_SCALE, end: 0 },
         alpha: { start: 1, end: 0 },
         gravityY: 620,
         rotate: { min: -220, max: 220 },
@@ -54,7 +55,7 @@ export class EffectsManager {
       .particles(0, 0, 'fx_chip', {
         lifespan: 700,
         speed: { min: 120, max: 340 },
-        scale: { start: 0.7, end: 0.1 },
+        scale: { start: 0.7 / TEX_SCALE, end: 0.1 / TEX_SCALE },
         alpha: { start: 1, end: 0 },
         gravityY: 780,
         rotate: { min: -360, max: 360 },
@@ -67,7 +68,7 @@ export class EffectsManager {
       .particles(0, 0, 'fx_chip', {
         lifespan: 900,
         speed: { min: 100, max: 420 },
-        scale: { start: 1.5, end: 0.2 },
+        scale: { start: 1.5 / TEX_SCALE, end: 0.2 / TEX_SCALE },
         alpha: { start: 1, end: 0 },
         gravityY: 900,
         rotate: { min: -520, max: 520 },
@@ -81,7 +82,7 @@ export class EffectsManager {
         lifespan: 1900,
         speed: { min: 180, max: 520 },
         angle: { min: 200, max: 340 },
-        scale: { start: 1.3, end: 0.5 },
+        scale: { start: 1.3 / TEX_SCALE, end: 0.5 / TEX_SCALE },
         alpha: { start: 1, end: 0.1 },
         gravityY: 620,
         rotate: { min: -420, max: 420 },
@@ -98,7 +99,7 @@ export class EffectsManager {
         lifespan: 6200,
         speedY: { min: -13, max: -3 },
         speedX: { min: -8, max: 8 },
-        scale: { start: 0.16, end: 0.03 },
+        scale: { start: 0.16 / TEX_SCALE, end: 0.03 / TEX_SCALE },
         alpha: { start: 0, end: 0 },
         tint: 0xffd6a0,
         frequency: 420,

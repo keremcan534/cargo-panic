@@ -6,8 +6,7 @@
 
 import './style.css';
 import Phaser from 'phaser';
-import { GAME_W } from './game/config';
-import { stageHeight } from './game/layout';
+import { canvasSize, logicalHeight } from './game/render';
 import { BootScene } from './game/scenes/BootScene';
 import { SplashScene } from './game/scenes/SplashScene';
 import { MenuScene } from './game/scenes/MenuScene';
@@ -17,11 +16,15 @@ import { audio } from './game/systems/AudioManager';
 
 const parent = document.getElementById('game-root') as HTMLElement;
 
+const initial = canvasSize();
+
 const game = new Phaser.Game({
   type: Phaser.AUTO,
   parent,
-  width: GAME_W,
-  height: stageHeight(),
+  // Device-pixel sized: cameras zoom back to the 720-wide logical space, so
+  // sprites are rasterised at the resolution the screen can actually show.
+  width: initial.width,
+  height: initial.height,
   backgroundColor: '#0d1117',
   antialias: true,
   roundPixels: false,
@@ -75,15 +78,18 @@ document.addEventListener('visibilitychange', () => {
 // Minor resizes are absorbed by Scale.FIT. Only a genuine shape change (an
 // orientation flip, a desktop window drag) is worth rebuilding the stage for.
 let resizeTimer = 0;
+let lastLogicalHeight = logicalHeight();
 window.addEventListener('resize', () => {
   window.clearTimeout(resizeTimer);
   resizeTimer = window.setTimeout(() => {
-    const next = stageHeight();
-    if (Math.abs(next - game.scale.height) < 60) {
+    const next = logicalHeight();
+    const size = canvasSize();
+    if (Math.abs(next - lastLogicalHeight) < 60) {
       game.scale.refresh();
       return;
     }
-    game.scale.resize(GAME_W, next);
+    lastLogicalHeight = next;
+    game.scale.resize(size.width, size.height);
     const active = game.scene.getScenes(true)[0];
     if (active) active.scene.restart(active.scene.settings.data);
   }, 220);

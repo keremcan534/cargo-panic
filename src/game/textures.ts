@@ -9,6 +9,13 @@ import { PKG_H, SLOT_W } from './config';
 import { PACKAGE_SPECS } from './levels/types';
 import type { PackageType } from './levels/types';
 
+/**
+ * Textures are baked at twice their logical size and drawn back down, so they
+ * stay sharp on a high-DPI panel (and supersample nicely on a low-DPI one).
+ * Anything that draws a baked texture must divide its scale by this.
+ */
+export const TEX_SCALE = 2;
+
 /** Horizontal breathing room between neighbouring packages. */
 export const PKG_GAP = 8;
 /** Height of the little top face that gives packages their 2.5D read. */
@@ -105,8 +112,15 @@ function canvas(scene: Phaser.Scene, key: string, w: number, h: number) {
   if (existing && existing.key === key && scene.textures.exists(key)) {
     scene.textures.remove(key);
   }
-  const tex = scene.textures.createCanvas(key, w, h) as Phaser.Textures.CanvasTexture;
-  return { tex, ctx: tex.getContext() };
+  const tex = scene.textures.createCanvas(
+    key,
+    Math.ceil(w * TEX_SCALE),
+    Math.ceil(h * TEX_SCALE),
+  ) as Phaser.Textures.CanvasTexture;
+  const ctx = tex.getContext();
+  // Every draw routine below keeps working in logical units.
+  ctx.scale(TEX_SCALE, TEX_SCALE);
+  return { tex, ctx };
 }
 
 // ---------------------------------------------------------------------------
@@ -156,6 +170,26 @@ function drawPackage(scene: Phaser.Scene, type: PackageType) {
   ctx.fillRect(0, TOP_D, w, fh);
 
   drawDetail(ctx, type, w, h, p);
+
+  // Edge occlusion gives the flat front face some roundness, and a darker
+  // band at the base grounds the box on whatever it is standing on.
+  const edge = ctx.createLinearGradient(0, 0, w, 0);
+  edge.addColorStop(0, 'rgba(0,0,0,0.30)');
+  edge.addColorStop(0.13, 'rgba(0,0,0,0)');
+  edge.addColorStop(0.87, 'rgba(0,0,0,0)');
+  edge.addColorStop(1, 'rgba(0,0,0,0.34)');
+  ctx.fillStyle = edge;
+  ctx.fillRect(0, TOP_D, w, fh);
+
+  const base = ctx.createLinearGradient(0, h - 14, 0, h);
+  base.addColorStop(0, 'rgba(0,0,0,0)');
+  base.addColorStop(1, 'rgba(0,0,0,0.34)');
+  ctx.fillStyle = base;
+  ctx.fillRect(0, h - 14, w, 14);
+
+  // Specular along the very top of the front face.
+  ctx.fillStyle = 'rgba(255,255,255,0.20)';
+  ctx.fillRect(4, TOP_D, w - 8, 1.6);
   ctx.restore();
 
   // Outline.
@@ -459,6 +493,20 @@ function drawLampGlow(scene: Phaser.Scene) {
   tex.refresh();
 }
 
+/** Soft radial falloff, used for light pools and grounding shadows. */
+function drawSoftGlow(scene: Phaser.Scene) {
+  const size = 256;
+  const { tex, ctx } = canvas(scene, 'fx_glow', size, size);
+  const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(0.35, 'rgba(255,255,255,0.42)');
+  g.addColorStop(0.7, 'rgba(255,255,255,0.11)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, size, size);
+  tex.refresh();
+}
+
 function drawBackdropGradient(scene: Phaser.Scene) {
   const { tex, ctx } = canvas(scene, 'bg_grad', 8, 256);
   const g = ctx.createLinearGradient(0, 0, 0, 256);
@@ -526,6 +574,7 @@ export function generateTextures(scene: Phaser.Scene) {
   drawCracks(scene);
   drawVignette(scene);
   drawBackdropGradient(scene);
+  drawSoftGlow(scene);
   drawStar(scene, 'star_on', '#ffc93c', '#8a5f00');
   drawStar(scene, 'star_off', '#2b3444', '#3d4a5c');
   drawStar(scene, 'star_small_on', '#ffc93c', '#8a5f00', 40);

@@ -11,7 +11,7 @@ import type { PackageType } from '../levels/types';
 import { audio } from '../systems/AudioManager';
 import { formatScore, formatSeed } from '../systems/RunManager';
 import type { WaveResult } from '../systems/RunManager';
-import { pkgTextureKey } from '../textures';
+import { pkgTextureKey, TEX_SCALE } from '../textures';
 import { Button } from './Button';
 import { registerTap, TAP_LAYER, unregisterTap } from './TapManager';
 import type { Tappable } from './TapManager';
@@ -188,9 +188,10 @@ export class WinPanel extends Modal {
     const gap = 104;
     for (let i = 0; i < 3; i++) {
       const earned = i < info.stars;
+      const base = 1 / TEX_SCALE;
       const s = scene.add
         .image((i - 1) * gap, -152, earned ? 'star_on' : 'star_off')
-        .setScale(earned ? 0 : 1)
+        .setScale(earned ? 0 : base)
         .setAlpha(earned ? 1 : 0.55);
       this.addToCard(s);
       if (earned) {
@@ -199,12 +200,12 @@ export class WinPanel extends Modal {
           audio.star(i);
           scene.tweens.add({
             targets: s,
-            scale: { from: 0, to: 1.15 },
+            scale: { from: 0, to: base * 1.15 },
             angle: { from: -50, to: 0 },
             duration: 300,
             ease: 'Back.easeOut',
             onComplete: () => {
-              scene.tweens.add({ targets: s, scale: 1, duration: 140 });
+              scene.tweens.add({ targets: s, scale: base, duration: 140 });
             },
           });
         });
@@ -437,7 +438,7 @@ export class LegendPanel extends Modal {
       const img = scene.add
         .image(-196, y, pkgTextureKey(type))
         .setOrigin(1, 0.5)
-        .setScale(type === 'long' ? 0.36 : 0.7);
+        .setScale((type === 'long' ? 0.36 : 0.7) / TEX_SCALE);
       const name = scene.add
         .text(-172, y - 13, `${spec.label}   WEIGHT ${spec.weight}`, {
           fontFamily: FONT,

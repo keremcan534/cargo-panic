@@ -8,7 +8,7 @@ import Phaser from 'phaser';
 import { COLORS, PKG_H } from '../config';
 import { PACKAGE_SPECS } from '../levels/types';
 import type { PackageSpec, PackageType } from '../levels/types';
-import { pkgTextureKey, pkgWidth } from '../textures';
+import { pkgTextureKey, pkgWidth, TEX_SCALE } from '../textures';
 
 export type PackageState = 'queued' | 'dragging' | 'placed' | 'falling';
 
@@ -47,7 +47,10 @@ export class CargoPackage {
       .setDisplaySize(this.width * 1.06, 26)
       .setAlpha(0.4);
 
-    this.body = scene.add.image(0, 0, pkgTextureKey(type)).setOrigin(0.5);
+    this.body = scene.add
+      .image(0, 0, pkgTextureKey(type))
+      .setOrigin(0.5)
+      .setScale(1 / TEX_SCALE);
 
     this.ring = scene.add.graphics();
     this.ring.setVisible(false);
@@ -56,7 +59,11 @@ export class CargoPackage {
     this.view.setSize(this.width, PKG_H);
 
     if (type === 'fragile') {
-      this.cracks = scene.add.image(0, 0, 'fx_cracks').setOrigin(0.5).setAlpha(0);
+      this.cracks = scene.add
+        .image(0, 0, 'fx_cracks')
+        .setOrigin(0.5)
+        .setScale(1 / TEX_SCALE)
+        .setAlpha(0);
       this.view.add(this.cracks);
     }
   }
@@ -104,14 +111,25 @@ export class CargoPackage {
   /** Squash-and-stretch on touchdown. Heavier cargo squashes harder. */
   landBounce(strength = 1) {
     this.scene.tweens.killTweensOf(this.body);
-    this.body.setScale(1);
+    const base = 1 / TEX_SCALE;
+    this.body.setScale(base);
     const squash = Math.min(0.3, 0.1 + strength * 0.035);
     this.scene.tweens.chain({
       targets: this.body,
       tweens: [
-        { scaleX: 1 + squash, scaleY: 1 - squash, duration: 80, ease: 'Quad.easeOut' },
-        { scaleX: 1 - squash * 0.4, scaleY: 1 + squash * 0.4, duration: 90, ease: 'Quad.easeInOut' },
-        { scaleX: 1, scaleY: 1, duration: 130, ease: 'Back.easeOut' },
+        {
+          scaleX: base * (1 + squash),
+          scaleY: base * (1 - squash),
+          duration: 80,
+          ease: 'Quad.easeOut',
+        },
+        {
+          scaleX: base * (1 - squash * 0.4),
+          scaleY: base * (1 + squash * 0.4),
+          duration: 90,
+          ease: 'Quad.easeInOut',
+        },
+        { scaleX: base, scaleY: base, duration: 130, ease: 'Back.easeOut' },
       ],
     });
   }
