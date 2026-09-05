@@ -55,9 +55,10 @@ npm run validate:endless
 
 ## Stack
 
-TypeScript + Vite + Phaser 3. No backend, no accounts, no network calls, no
-external assets — every sprite is drawn into a canvas texture at boot and every
-sound is synthesised with the Web Audio API.
+TypeScript + Vite + **Three.js** for the world, plain **HTML/CSS** for every
+piece of UI. No backend, no accounts, no network calls, no external assets -
+every texture is drawn into a canvas at boot and every sound is synthesised
+with the Web Audio API.
 
 ---
 
@@ -198,52 +199,57 @@ the search never costs a frame.
 
 ## Rendering
 
-The game is authored in a fixed **720-wide logical space**, but that is not what
-it renders at. A phone at `devicePixelRatio` 3 gives the canvas roughly 1236
-real pixels across, so drawing at 720 and letting the browser stretch the result
-blurred every sprite and label by about 70%.
+The warehouse, rack, cargo and belt are a real 3D scene rendered by Three.js.
+The HUD, balance meter, panels and menus are DOM. Splitting it that way gives
+crisp text at any pixel ratio, native touch targets and CSS transitions for
+free, while the world gets PBR materials, real shadows and post-processing.
 
-So three things line up on the same scale:
+**2.5D, on purpose.** The camera is a 40 degree perspective camera pitched 22
+degrees down, so the slot grid stays a flat, readable plane facing the player -
+the puzzle is still "which slot", never "aim in 3D" - but planks have depth,
+cargo has volume, and the belt sits in front of the rack instead of below it.
 
-| | before | after |
-| --- | --- | --- |
-| canvas backing store | 720 x 1580 | **matches physical pixels** (1236 x 2712 on a DPR-3 phone) |
-| baked textures | 1x | **2x**, drawn back down |
-| `Phaser.Text` | 1x | **rasterised at the render scale** |
+**Framing is solved, not tuned.** [`frameCamera`](src/render/Framing.ts)
+iterates camera distance and height against three screen-space constraints: the
+rack fits the width with a margin, its cap beam stays below the HUD band, and
+the belt's front edge is pinned to the same screen height on every level so the
+pickup spot never moves. The module is pure and Node-importable; the same maths
+drives the headless regression harness that plays the game with synthetic
+pointer input.
 
-Cameras are zoomed by the same factor
-([`useLogicalCamera`](src/game/render.ts)), so scene code — including
-`pointer.worldX` — still works in plain 720-wide units and never has to think
-about it. Text resolution is applied by listening for `ADDED_TO_SCENE` rather
-than remembering it at forty call sites.
+**Look.** Hemisphere, key and rim lights plus three flickering spot lamps with
+soft shadow maps; ACES tone mapping, exponential fog and a light bloom pass;
+`MeshStandardMaterial` cargo whose front faces (type art, weight badge, crack
+overlay on damaged fragile crates) are canvas textures; a pooled point cloud
+for dust, sparks, glass and confetti. Bloom switches itself off after about
+1.5 seconds of sustained slow frames, so a low-end phone keeps its frame rate
+before it keeps its glow.
 
-On top of that the main camera carries a cheap **ColorMatrix grade and
-vignette** (single-pass shaders on the existing render target), the warehouse is
-built in depth layers with real light pooling, and cargo carries edge occlusion
-and a grounded base so the flat front faces read as volume.
-
-Measured on a CPU-throttled Chrome at DPR 3, full resolution and post-processing:
+Measured in a CPU-throttled headless Chrome at DPR 3 (1170 x 2532 backing store)
+on a three-tier level while dragging a package:
 
 | CPU throttle | fps | p95 frame |
 | --- | --- | --- |
 | 1x | 144 (vsync) | 7.3 ms |
-| 4x (mid-range phone) | **63** | 17.1 ms |
-| 6x (low-end) | 38 | 28.1 ms |
+| 4x (mid-range phone) | 144 | 7.5 ms |
+| 6x (low-end) | 113 | 10.0 ms |
 
-The post-processing costs about 1.4 fps of that — the engine is nowhere near
-being the limit, which is why the fix here was resolution and art direction
-rather than a different renderer.
+CPU throttling does not slow the GPU, so these numbers bound the JavaScript
+side only; on a weak mobile GPU the shadow maps and bloom are the cost, which is
+why bloom is the first thing the adaptive path drops. The Three.js chunk is
+122 KB gzipped, under a third of the previous Phaser bundle.
 
 ---
 
 ## Input
 
-Both cargo dragging and every button hit-test themselves from scene-level
-pointer events rather than going through Phaser's per-object input, because
-per-object hit testing does not fire for touch pointers in this project. One
-code path therefore serves mouse and touch identically. Buttons keep a 52px
-minimum touch target however small they are drawn, and a dragged package floats
-64px above a finger so it stays visible while being moved.
+Cargo is picked by ray-casting the pointer against the live belt package and
+every stowed package, then dragged along a fixed plane just in front of the
+rack. The drop slot comes from the dragged box's position in rack-local space,
+so a leaning rack is handled for free. One `pointerdown / move / up` path on the
+canvas serves mouse and touch identically; on touch the package floats 0.9
+world units above the finger so it stays visible. Every button is a DOM element
+with a 52px minimum target.
 
 ---
 
@@ -259,11 +265,10 @@ save so play is never interrupted.
 
 ## Layout
 
-The stage is a fixed 720 logical pixels wide with a height that follows the
-device aspect ratio (clamped to 1120–1580), so tall Android phones fill their
-screen instead of being letterboxed. Short racks scale up to fill the available
-band. Browser scrolling, pinch-zoom, double-tap zoom, text selection and the
-long-press context menu are all suppressed.
+The UI is laid out in CSS (safe-area aware) and the 3D framing adapts to any
+aspect ratio through the solver above, so tall Android phones and tablets both
+get a full-width rack. Browser scrolling, pinch-zoom, double-tap zoom, text
+selection and the long-press context menu are all suppressed.
 
 ---
 
@@ -297,29 +302,35 @@ Haptics currently go through `navigator.vibrate`
 
 ```
 src/
-  main.ts                  Phaser boot, browser gesture lockdown, resize handling
+  main.ts                  renderer boot, router, browser gesture lockdown
+  app/
+    Router.ts              one renderer, one UI root, one screen at a time
+    Game.ts                gameplay controller: drag loop, hazards, win/fail, endless
+  render/
+    Renderer.ts            Three.js renderer, camera, post-processing, picking
+    Framing.ts             camera framing solver (pure, shared with tooling)
+    Materials.ts           procedural canvas textures and PBR materials
+    Warehouse.ts           floor, wall, lamps, lights
+    Particles.ts           pooled point-cloud effects
+    Tween.ts               tween runner
+  world/                   Rack3D, Shelf3D, Cargo3D, Conveyor3D
+  ui/                      DOM: Hud, Meter, Panels, Menu, LevelSelect, Splash
   game/
-    config.ts              tuning constants
-    layout.ts              responsive anchors (Phaser-free, shared with tooling)
-    render.ts              render scale, logical camera, camera grade
-    textures.ts            every sprite, drawn into canvas textures at boot
-    scenes/                Boot, Splash, Menu, LevelSelect, Game
+    config.ts              tuning constants and world proportions
     systems/               Balance, Placement, Hazard, Solver, Rng, RunManager,
-                           Audio, Effects, Haptics, Hint gate, Progress
-    entities/              Package, Shelf, Rack, Conveyor
+                           Audio, Haptics, Hint gate, Progress
     levels/                campaign data, package specs, endless generator
-    ui/                    Button, TapManager, BalanceMeter, Hud, Panels, Backdrop
 scripts/
   validate-levels.ts       campaign QA gate
   validate-endless.ts      procedural generation QA gate
 ```
 
-One `GameScene` runs both modes: Endless simply feeds it generated `LevelDef`s
-and wraps them in a run. Nothing in the placement, balance or hazard code knows
-which mode it is in.
+One `Game` controller runs both modes: Endless simply feeds it generated
+`LevelDef`s and wraps them in a run. Nothing in the placement, balance or
+hazard code knows which mode it is in.
 
-`BalanceSystem`, `Solver`, `layout` and the level data import no Phaser, which
-is what lets the validator run them headlessly in Node.
+`BalanceSystem`, `Solver`, `Framing` and the level data import no DOM, which is
+what lets the validators and the regression harness run them in Node.
 
 ---
 

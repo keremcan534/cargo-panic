@@ -11,11 +11,9 @@
     "validate": "tsx scripts/validate-levels.ts",
     "validate:endless": "tsx scripts/validate-endless.ts"
   },
-  "dependencies": {
-    "phaser": "^3.90.0"
-  },
   "devDependencies": {
     "@types/node": "^26.3.0",
+    "@types/three": "^0.170.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3",
     "vite": "^6.0.11"
@@ -23,5 +21,8 @@
   "allowScripts": {
     "esbuild@0.28.2": true,
     "esbuild@0.25.12": true
+  },
+  "dependencies": {
+    "three": "^0.170.0"
   }
 }

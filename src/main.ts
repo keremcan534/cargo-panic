@@ -1,58 +1,35 @@
 /**
- * Entry point. Boots Phaser at a fixed 720px logical width with a height that
- * matches the device aspect ratio, and locks down the browser gestures that
- * would otherwise fight a full-screen touch game.
+ * Entry point. One WebGL renderer under one DOM UI root, plus the browser
+ * gesture lockdown a full-screen touch game needs.
  */
 
 import './style.css';
-import Phaser from 'phaser';
-import { canvasSize, logicalHeight } from './game/render';
-import { BootScene } from './game/scenes/BootScene';
-import { SplashScene } from './game/scenes/SplashScene';
-import { MenuScene } from './game/scenes/MenuScene';
-import { LevelSelectScene } from './game/scenes/LevelSelectScene';
-import { GameScene } from './game/scenes/GameScene';
+import { Router } from './app/Router';
 import { audio } from './game/systems/AudioManager';
+import { Renderer } from './render/Renderer';
+import { splashScreen } from './ui/Splash';
 
-const parent = document.getElementById('game-root') as HTMLElement;
+const root = document.getElementById('game-root') as HTMLElement;
+const renderer = new Renderer(root);
+const router = new Router(renderer);
 
-const initial = canvasSize();
+// Retire the pre-render HTML splash now that we can paint.
+const boot = document.getElementById('boot-splash');
+if (boot) {
+  boot.classList.add('hidden');
+  window.setTimeout(() => boot.remove(), 500);
+}
 
-const game = new Phaser.Game({
-  type: Phaser.AUTO,
-  parent,
-  // Device-pixel sized: cameras zoom back to the 720-wide logical space, so
-  // sprites are rasterised at the resolution the screen can actually show.
-  width: initial.width,
-  height: initial.height,
-  backgroundColor: '#0d1117',
-  antialias: true,
-  roundPixels: false,
-  powerPreference: 'high-performance',
-  scale: {
-    mode: Phaser.Scale.FIT,
-    autoCenter: Phaser.Scale.CENTER_BOTH,
-  },
-  input: {
-    activePointers: 2,
-    touch: { capture: true },
-  },
-  fps: { target: 60, min: 30 },
-  scene: [BootScene, SplashScene, MenuScene, LevelSelectScene, GameScene],
-});
+renderer.start();
+router.go(splashScreen);
 
 // --- browser gesture lockdown ----------------------------------------------
-// Portrait touch game: no scroll, no pinch-zoom, no double-tap zoom, no
-// long-press selection or context menu.
 const stop = (e: Event) => e.preventDefault();
 document.addEventListener('contextmenu', stop);
 document.addEventListener('gesturestart', stop);
 document.addEventListener('gesturechange', stop);
 document.addEventListener('selectstart', stop);
-document.addEventListener('touchmove', (e) => {
-  if (e.touches.length > 1) e.preventDefault();
-}, { passive: false });
-
+document.addEventListener('touchmove', (e) => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
 let lastTouchEnd = 0;
 document.addEventListener(
   'touchend',
@@ -64,33 +41,9 @@ document.addEventListener(
   { passive: false },
 );
 
-// --- audio unlock -----------------------------------------------------------
-const unlock = () => audio.unlock();
-window.addEventListener('pointerdown', unlock, { once: false });
-window.addEventListener('keydown', unlock, { once: false });
-
+// --- audio unlock ------------------------------------------------------------
+window.addEventListener('pointerdown', () => audio.unlock());
+window.addEventListener('keydown', () => audio.unlock());
 document.addEventListener('visibilitychange', () => {
-  // Mute-by-suspend is handled by the browser; just make sure we resume cleanly.
   if (!document.hidden) audio.unlock();
-});
-
-// --- relayout on real aspect-ratio changes ---------------------------------
-// Minor resizes are absorbed by Scale.FIT. Only a genuine shape change (an
-// orientation flip, a desktop window drag) is worth rebuilding the stage for.
-let resizeTimer = 0;
-let lastLogicalHeight = logicalHeight();
-window.addEventListener('resize', () => {
-  window.clearTimeout(resizeTimer);
-  resizeTimer = window.setTimeout(() => {
-    const next = logicalHeight();
-    const size = canvasSize();
-    if (Math.abs(next - lastLogicalHeight) < 60) {
-      game.scale.refresh();
-      return;
-    }
-    lastLogicalHeight = next;
-    game.scale.resize(size.width, size.height);
-    const active = game.scene.getScenes(true)[0];
-    if (active) active.scene.restart(active.scene.settings.data);
-  }, 220);
 });

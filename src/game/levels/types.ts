@@ -1,5 +1,5 @@
 /**
- * Pure data model for levels and packages. Deliberately free of any Phaser
+ * Pure data model for levels and packages. Deliberately free of any renderer
  * import so the same types drive the headless level validator in scripts/.
  */
 
