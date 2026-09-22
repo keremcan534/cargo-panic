@@ -17,8 +17,14 @@ export const FRAME_BAND = {
   side: 0.035,
 } as const;
 
-/** Bottom fraction of the play area that counts as "drop it back on the belt". */
-export const BELT_ZONE = 0.76;
+/**
+ * Bottom fraction of the screen the 3D view treats as "drop it back on the
+ * belt". 3D only: the 2D view decides the belt in its own projection (below
+ * the rack floor), because this fraction lands on the bottom shelf of several
+ * 2D rack shapes. The controller asks the view (dragTarget / targetAt), never
+ * this constant.
+ */
+export const BELT_ZONE_3D = 0.76;
 
 /** Half-width of the rack frame including the uprights, in world units (1 slot = 1 unit). */
 export function rackHalfWidth(maxSlots: number): number {

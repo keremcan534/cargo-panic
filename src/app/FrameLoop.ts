@@ -3,12 +3,16 @@
  * updates; the current Stage draws last. Swapping stages never adds a loop.
  */
 
+import { MAX_FRAME_CATCHUP_MS, MAX_STEP_MS } from '../game/config';
 import type { Stage } from '../render/Stage';
 
-export type FrameCallback = (dtMs: number) => void;
-
-/** Longest step fed to the game, so a stall never fast-forwards the clocks. */
-const MAX_STEP_MS = 50;
+/**
+ * `animMs` - capped frame time for animation (tweens, easing, particles).
+ * `realMs` - real time for the rules clocks, capped only against stalls. Feed
+ * it to GameSession.advance(), which sub-steps it, so a slow frame rate never
+ * buys the player extra seconds on a hazard.
+ */
+export type FrameCallback = (animMs: number, realMs: number) => void;
 
 export class FrameLoop {
   private callbacks = new Set<FrameCallback>();
@@ -39,14 +43,20 @@ export class FrameLoop {
     return this.callbacks.size;
   }
 
+  /** Frames drawn since start (for tests and frame-time sampling). */
+  frames = 0;
+
   private frame = (now: number) => {
     if (!this.running) return;
     this.handle = requestAnimationFrame(this.frame);
-    const dt = Math.min(MAX_STEP_MS, Math.max(0, now - this.last));
+    const raw = Math.max(0, now - this.last);
     this.last = now;
+    const anim = Math.min(MAX_STEP_MS, raw);
+    const real = Math.min(MAX_FRAME_CATCHUP_MS, raw);
+    this.frames++;
     const stage = this.stage;
-    stage?.tweens.update(dt);
-    for (const cb of this.callbacks) cb(dt);
-    stage?.render(dt);
+    stage?.tweens.update(anim);
+    for (const cb of this.callbacks) cb(anim, real);
+    stage?.render(anim);
   };
 }
