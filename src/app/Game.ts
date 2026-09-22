@@ -7,6 +7,13 @@
  * followed by the view transition and a sync. The view only draws. This file
  * must not import three.js or anything under src/render/three.
  *
+ * The view is replaceable: a render-mode switch (pause panel, or the 2D
+ * fallback after a lost WebGL context) disposes the view and mounts a new
+ * one from the SAME session - placements, queue, hazard clocks, score and
+ * assists are untouched. Pointer input listens on the stable #game-root, so
+ * only the view reference changes. While the view is swapped the session is
+ * held by the 'switching' pause reason; see PauseReasons.
+ *
  * Design rule enforced everywhere: nothing ever fails instantly. Imbalance,
  * overloading and crushing all raise a visible countdown first, and the player
  * can always pick cargo back up to fix it - but holding a package does not
@@ -14,6 +21,9 @@
  */
 
 import type { AppContext, Screen } from './Router';
+import { PauseReasons } from './PauseReasons';
+import type { PauseReason } from './PauseReasons';
+import type { SwitchResult } from './StageHost';
 import { GRACE_MS } from '../game/config';
 import { getWave, prefetchWave } from '../game/levels/generator';
 import { getLevel, TOTAL_LEVELS } from '../game/levels/levels';
@@ -22,13 +32,16 @@ import type { LevelDef } from '../game/levels/types';
 import { campaignStars, GameSession, nextWave, rewardWave, waveSource } from '../game/session';
 import type { BlockReason, ShipmentOutcome, ShipmentSnapshot, TickResult } from '../game/session';
 import { audio } from '../game/systems/AudioManager';
+import { evaluate } from '../game/systems/BalanceSystem';
 import { haptics } from '../game/systems/Haptics';
 import { requestHint } from '../game/systems/HintService';
 import { progress } from '../game/systems/ProgressManager';
 import { formatScore, newRun } from '../game/systems/RunManager';
 import type { RunState } from '../game/systems/RunManager';
+import { t } from '../i18n';
 import { InteractionController } from '../input/InteractionController';
 import type { BoardView, ClientPoint, DropTarget, GameView, RenderMode } from '../render/GameView';
+import type { Stage } from '../render/Stage';
 import { Hud } from '../ui/Hud';
 import { levelSelectScreen } from '../ui/LevelSelect';
 import { menuScreen } from '../ui/Menu';
@@ -38,11 +51,13 @@ import {
   LegendPanel,
   PausePanel,
   RunOverPanel,
+  SuggestCard,
   TipCard,
   WaveClearCard,
   WinPanel,
 } from '../ui/Panels';
 import type { FailReason } from '../ui/Panels';
+import { viewControls } from '../ui/ViewSettings';
 import { btn, el, fadeIn, fadeOut, iconBtn, uiRoot } from '../ui/dom';
 
 export interface GameData {
@@ -52,7 +67,13 @@ export interface GameData {
 
 /** Read-only probe for browser tests (`?e2e`) and dev builds. */
 export interface GameTestHook {
+  /** Mode of the view drawing the board now (changes on a view switch). */
   readonly mode: RenderMode;
+  /** Why the session is paused right now (empty while playing). */
+  readonly pauseReasons: PauseReason[];
+  /** FrameLoop subscribers and frames drawn: a switch must not add loops. */
+  readonly loopSubscribers: number;
+  readonly loopFrames: number;
   snapshot(): ShipmentSnapshot;
   board(): BoardView;
   /** The drop target currently shown for the package in hand (what a release would commit), or null. */
@@ -97,9 +118,13 @@ class GameController implements Screen {
   private run: RunState | null;
   private graceScale: number;
   private session: GameSession;
+  private pauses: PauseReasons;
 
   private view!: GameView;
+  /** False between detachStage and attachStage (a view switch in progress). */
+  private viewLive = false;
   private interaction!: InteractionController;
+  private surface!: HTMLElement;
   private hud!: Hud;
   private meter!: Meter;
   private controls!: HTMLElement;
@@ -109,10 +134,16 @@ class GameController implements Screen {
   private creakAccum = 0;
   private beepAccum = 0;
   private beepStep = 0;
-  private hintTimer = 0;
   private tip?: TipCard;
   private waveCard?: WaveClearCard;
+  private suggestion?: SuggestCard;
+  private pausePanel: PausePanel | null = null;
+  private legendOpen = false;
   private advancing = false;
+  /** Endless: the cleared rack has been dispatched (a new view starts empty). */
+  private dispatched = false;
+  /** After an outcome: replays its look on a view mounted later (a switch). Rules are not involved. */
+  private outcomeLook: ((view: GameView) => void) | null = null;
   private timers: number[] = [];
   private offFrame?: () => void;
   private offAdvanceTap?: () => void;
@@ -136,6 +167,7 @@ class GameController implements Screen {
       this.graceScale = 1;
       this.session = new GameSession(this.level, { source: { mode: 'campaign', levelId: this.level.id } });
     }
+    this.pauses = new PauseReasons(this.session);
   }
 
   // ==========================================================================
@@ -143,9 +175,7 @@ class GameController implements Screen {
   // ==========================================================================
 
   enter() {
-    const stage = this.ctx.stage;
-    this.view = stage.createGameView();
-    this.view.mount(this.boardView());
+    this.mountView(this.ctx.stage);
 
     this.meter = new Meter(this.level.balanceTolerance);
     this.hud = new Hud(
@@ -188,8 +218,10 @@ class GameController implements Screen {
       this.tip = new TipCard(this.level.tip);
     }
 
+    // The stable root under the canvas: a view switch replaces the canvas, not this.
+    this.surface = document.getElementById('game-root') as HTMLElement;
     this.interaction = new InteractionController({
-      surface: stage.canvas,
+      surface: this.surface,
       session: this.session,
       view: this.view,
       hooks: {
@@ -216,6 +248,7 @@ class GameController implements Screen {
       },
     });
     this.interaction.attach();
+    window.addEventListener('keydown', this.onKey);
 
     this.offFrame = this.ctx.loop.onFrame(this.frame);
     this.installTestHook();
@@ -225,12 +258,14 @@ class GameController implements Screen {
   exit() {
     this.offFrame?.();
     this.interaction.detach();
+    window.removeEventListener('keydown', this.onKey);
     this.offAdvanceTap?.();
     for (const t of this.timers) clearTimeout(t);
-    clearTimeout(this.hintTimer);
     this.tip?.dismiss();
     this.waveCard?.dismiss();
-    this.view.dispose();
+    this.suggestion?.dismiss();
+    if (this.viewLive) this.view.dispose();
+    this.viewLive = false;
     this.hud.destroy();
     this.meter.destroy();
     this.controls.remove();
@@ -238,6 +273,61 @@ class GameController implements Screen {
     this.dangerEl.remove();
     if (this.testHook && window.__cargoPanic === this.testHook) delete window.__cargoPanic;
   }
+
+  // ==========================================================================
+  // View switching (see StageHost for the whole sequence)
+  // ==========================================================================
+
+  /** Steps 1-2: cancel any drag (nothing changes in the session), hold the session, drop the view. */
+  detachStage() {
+    if (!this.viewLive) return;
+    this.interaction.cancel();
+    this.pauses.add('switching');
+    this.view.dispose();
+    this.viewLive = false;
+  }
+
+  /** Step 6: a new view on the new stage, mounted from the same session. It stays paused. */
+  attachStage(stage: Stage, _result: SwitchResult) {
+    if (this.viewLive) return;
+    this.mountView(stage);
+    this.interaction.setView(this.view);
+    if (this.pauses.has('context-lost')) {
+      // We are here because the lost 3D context never came back: the player
+      // resumes from the pause panel, like after any switch.
+      this.openPause();
+      this.pauses.remove('context-lost');
+    }
+    this.pauses.remove('switching');
+  }
+
+  stageLost() {
+    this.interaction.cancel();
+    this.pauses.add('context-lost');
+  }
+
+  stageRestored() {
+    this.pauses.remove('context-lost');
+  }
+
+  private mountView(stage: Stage) {
+    this.view = stage.createGameView();
+    this.view.mount(this.mountBoard());
+    this.outcomeLook?.(this.view);
+    this.viewLive = true;
+  }
+
+  /** The board a new view starts from: the session's, or the empty rack once Endless has dispatched it. */
+  private mountBoard(): BoardView {
+    const b = this.boardView();
+    if (!this.dispatched) return b;
+    const empty = evaluate(this.level, []);
+    return { ...b, placements: [], queue: [], held: null, evaluation: empty, wobble: false };
+  }
+
+  private onKey = (e: KeyboardEvent) => {
+    if (e.key === 'Escape' && !e.repeat) this.openPause();
+  };
 
   private after(ms: number, fn: () => void) {
     const t = window.setTimeout(fn, ms);
@@ -257,12 +347,24 @@ class GameController implements Screen {
 
   private installTestHook() {
     if (!testHookEnabled()) return;
+    const self = this;
     const hook: GameTestHook = {
-      mode: this.view.mode,
+      get mode() {
+        return self.view.mode;
+      },
+      get pauseReasons() {
+        return self.pauses.list();
+      },
+      get loopSubscribers() {
+        return self.ctx.loop.subscribers;
+      },
+      get loopFrames() {
+        return self.ctx.loop.frames;
+      },
       snapshot: () => this.session.snapshot(),
       board: () => this.boardView(),
       aimed: () => this.interaction.aimed,
-      clientPointOf: (t) => this.view.clientPointOf(t),
+      clientPointOf: (target) => (this.viewLive ? this.view.clientPointOf(target) : null),
     };
     this.testHook = Object.freeze(hook);
     window.__cargoPanic = this.testHook;
@@ -287,7 +389,7 @@ class GameController implements Screen {
 
   /** After every committed command: redraw the board, then the HUD and meter. */
   private refresh() {
-    this.view.sync(this.boardView());
+    if (this.viewLive) this.view.sync(this.boardView());
     this.refreshUi();
   }
 
@@ -320,8 +422,10 @@ class GameController implements Screen {
   // ==========================================================================
 
   private frame = (animMs: number, realMs: number) => {
-    this.view.update(animMs);
-    this.interaction.update();
+    if (this.viewLive) {
+      this.view.update(animMs);
+      this.interaction.update();
+    }
     this.meter.tick(animMs);
     if (this.session.phase !== 'play') return;
 
@@ -396,15 +500,13 @@ class GameController implements Screen {
       this.hud.toast('NO SOLUTION FROM HERE - TAP RESTART', 'info');
       return;
     }
-    this.clearHint();
-    this.view.showHint(current, { shelf: hint.shelf, slot: hint.slot });
+    // The view clears it after HINT_MS or when a drag begins (GameView.showHint).
+    if (this.viewLive) this.view.showHint(current, { shelf: hint.shelf, slot: hint.slot });
     if (hint.kind === 'rearrange') this.hud.toast('SOME STOWED CARGO NEEDS MOVING TOO', 'info');
-    this.hintTimer = window.setTimeout(() => this.clearHint(), 4200);
   }
 
   private clearHint() {
-    clearTimeout(this.hintTimer);
-    this.view.clearHint();
+    if (this.viewLive) this.view.clearHint();
   }
 
   // ==========================================================================
@@ -417,6 +519,12 @@ class GameController implements Screen {
     this.dangerEl.classList.remove('on');
   }
 
+  /** Plays an outcome on the current view and remembers it for any view mounted later. */
+  private showOutcome(look: (view: GameView) => void) {
+    this.outcomeLook = look;
+    if (this.viewLive) look(this.view);
+  }
+
   private winLevel(o: ShipmentOutcome) {
     this.endHazardUi();
     const stars = campaignStars(o);
@@ -425,7 +533,7 @@ class GameController implements Screen {
 
     audio.win();
     haptics.win();
-    this.view.celebrate();
+    if (this.viewLive) this.view.celebrate();
 
     const id = this.level.id;
     this.after(520, () => {
@@ -448,6 +556,7 @@ class GameController implements Screen {
           onLevels: () => this.goto(levelSelectScreen),
         },
       );
+      this.offerTwoD();
     });
   }
 
@@ -466,19 +575,23 @@ class GameController implements Screen {
       audio.collapse();
       haptics.crash();
       this.flash();
-      this.view.failCollapse((f?.net ?? net) >= 0 ? 1 : -1);
+      const dir = (f?.net ?? net) >= 0 ? 1 : -1;
+      this.showOutcome((v) => v.failCollapse(dir));
     } else if (f.kind === 'overload') {
       reason = 'overload';
       detail = `Tier ${f.tier + 1} carried ${f.load} against a rating of ${f.max}.`;
       audio.collapse();
       haptics.crash();
-      this.view.failOverload(f.tier, net >= 0 ? 1 : -1);
+      const tier = f.tier;
+      const dir = net >= 0 ? 1 : -1;
+      this.showOutcome((v) => v.failOverload(tier, dir));
     } else {
       reason = 'fragile';
       detail = 'A heavy crate was stacked in the column above the glass.';
       audio.shatter();
       haptics.crash();
-      this.view.failFragile(f.fragileId);
+      const id = f.fragileId;
+      this.showOutcome((v) => v.failFragile(id));
     }
 
     audio.fail();
@@ -525,6 +638,28 @@ class GameController implements Screen {
     f.classList.add('go');
   }
 
+  /**
+   * Between shipments only: if 3D has been struggling even at its lowest
+   * quality, offer the 2D view once per app run. Never switches by itself.
+   * `then` runs after either choice (Endless uses it to deal the next wave).
+   */
+  private offerTwoD(then?: () => void): boolean {
+    const app = this.ctx.app;
+    const stage = this.ctx.host.stageOrNull;
+    if (!stage || stage.mode !== '3d' || !stage.struggling || app.slowSuggestionShown) return false;
+    app.slowSuggestionShown = true;
+    this.suggestion = new SuggestCard(t('render.slowSuggest'), [
+      {
+        label: t('render.switchTo2d'),
+        role: 'switch-2d',
+        style: 'primary',
+        onPick: () => void app.switchRenderMode('2d', { persist: true }).then(() => then?.()),
+      },
+      { label: t('render.keep3d'), role: 'keep-3d', style: 'secondary', onPick: () => then?.() },
+    ]);
+    return true;
+  }
+
   // ==========================================================================
   // Endless
   // ==========================================================================
@@ -562,22 +697,30 @@ class GameController implements Screen {
     haptics.win();
     this.hud.setSubtitle(formatScore(run.score));
     this.hud.pulseSubtitle();
-    this.view.celebrate();
-    this.view.dispatch({ onEach: () => audio.pickup() });
+    if (this.viewLive) {
+      this.view.celebrate();
+      this.view.dispatch({ onEach: () => audio.pickup() });
+    }
+    this.dispatched = true;
     // The rack is empty now: the readouts follow.
     this.meter.setValue(0, 0, 0, 'stable');
     this.hud.setObjective(this.level.objective);
     this.hud.setRemaining(0, this.level.packages.length);
     this.waveCard = new WaveClearCard(result);
 
+    // A pending "try 2D?" choice holds the next wave until it is answered.
+    const asked = this.offerTwoD(() => this.advanceWave());
     this.after(700, () => {
       if (this.advancing) return;
-      const canvas = this.ctx.stage.canvas;
-      const tap = () => this.advanceWave();
-      canvas.addEventListener('pointerdown', tap, { once: true });
-      this.offAdvanceTap = () => canvas.removeEventListener('pointerdown', tap);
+      const surface = this.surface;
+      const tap = () => {
+        this.suggestion?.dismiss();
+        this.advanceWave();
+      };
+      surface.addEventListener('pointerdown', tap, { once: true });
+      this.offAdvanceTap = () => surface.removeEventListener('pointerdown', tap);
     });
-    this.after(2400, () => this.advanceWave());
+    if (!asked) this.after(2400, () => this.advanceWave());
   }
 
   private advanceWave() {
@@ -594,24 +737,28 @@ class GameController implements Screen {
   // Menus
   // ==========================================================================
 
-  /** Opening a panel mid-drag puts the package back; the rules clocks stop while it is open. */
-  private suspendPlay(): boolean {
-    if (this.session.phase !== 'play') return false;
-    this.interaction.cancel();
-    this.session.pause();
-    return true;
-  }
-
   private openLegend() {
-    if (!this.suspendPlay()) return;
+    if (this.legendOpen || this.pausePanel || this.session.phase !== 'play') return;
+    // Opening a panel mid-drag puts the package back; the rules clocks stop while it is open.
+    this.interaction.cancel();
+    this.pauses.add('legend');
+    this.legendOpen = true;
     new LegendPanel(() => {
-      this.session.resume();
+      this.legendOpen = false;
+      this.pauses.remove('legend');
     });
   }
 
+  /** Pause panel: also reachable while held by another reason (a switch, a lost context). */
   private openPause() {
-    if (!this.suspendPlay()) return;
-    new PausePanel({
+    const phase = this.session.phase;
+    if (this.pausePanel || this.legendOpen || (phase !== 'play' && phase !== 'paused')) return;
+    this.interaction.cancel();
+    this.pauses.add('menu');
+    const closed = () => {
+      this.pausePanel = null;
+    };
+    this.pausePanel = new PausePanel({
       soundOn: progress.soundOn,
       hapticsOn: progress.hapticsOn,
       onToggleSound: () => {
@@ -625,12 +772,21 @@ class GameController implements Screen {
         return on;
       },
       onResume: () => {
-        this.session.resume();
+        closed();
+        this.pauses.remove('menu');
       },
       restartLabel: this.run ? 'END RUN' : 'RESTART LEVEL',
       exitLabel: this.run ? 'MAIN MENU' : 'LEVEL SELECT',
-      onRestart: () => (this.run ? this.goto(menuScreen) : this.restartLevel()),
-      onExit: () => this.goto(this.run ? menuScreen : levelSelectScreen),
+      onRestart: () => {
+        closed();
+        if (this.run) this.goto(menuScreen);
+        else this.restartLevel();
+      },
+      onExit: () => {
+        closed();
+        this.goto(this.run ? menuScreen : levelSelectScreen);
+      },
+      view: viewControls(this.ctx),
     });
   }
 }

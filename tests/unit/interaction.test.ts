@@ -363,6 +363,48 @@ describe('InteractionController', () => {
     assert.equal(log.filter((l) => l.startsWith('placed')).length, 0);
   });
 
+  test('a window resize or orientation change mid-drag puts the package back', () => {
+    const before = board();
+    view.pick = 0;
+    ctl.down(ptr(1));
+    view.target = { kind: 'slot', shelf: 0, slot: 2 };
+    ctl.update();
+    blur.emit('resize');
+    assert.equal(session.held, null);
+    assert.equal(ctl.holding, null);
+    ctl.up(ptr(1)); // the release after the resize commits nothing
+    assert.equal(board(), before);
+
+    ctl.down(ptr(2));
+    blur.emit('orientationchange');
+    assert.equal(session.held, null);
+    assert.deepEqual(view.only('cargo'), ['cargoReturn:0', 'cargoReturn:0']);
+    assert.equal(board(), before);
+  });
+
+  test('setView: a drag on the old view is put back there, later input goes to the new view', () => {
+    const before = board();
+    view.pick = 0;
+    ctl.down(ptr(1));
+    const next = new FakeView();
+    ctl.setView(next);
+    assert.equal(session.held, null);
+    assert.deepEqual(view.only('cargo'), ['cargoReturn:0'], 'the old view settled its package');
+    ctl.up(ptr(1));
+    assert.equal(board(), before);
+    assert.equal(surface.count() > 0, true, 'the listeners stay on the surface');
+
+    // The same pointer surface now drives the new view.
+    next.pick = 0;
+    ctl.down(ptr(3));
+    next.target = { kind: 'slot', shelf: 0, slot: 2 };
+    ctl.update();
+    ctl.up(ptr(3));
+    assert.deepEqual(next.only('cargoPlaced'), ['cargoPlaced:0:0:2:loud']);
+    assert.equal(view.only('cargoPlaced').length, 0);
+    assert.deepEqual(session.placements.map((p) => [p.id, p.shelf, p.slot]), [[0, 0, 2]]);
+  });
+
   test('nothing can be picked up while paused, and detach removes every listener', () => {
     session.pause();
     view.pick = 0;

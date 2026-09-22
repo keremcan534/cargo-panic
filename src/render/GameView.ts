@@ -25,6 +25,13 @@ import type { BoardEval, Placement } from '../game/systems/BalanceSystem';
 
 export type RenderMode = '2d' | '3d';
 
+/**
+ * How long a hint stays up, in view animation time (the ms passed to
+ * update()). Both views clear it by themselves after this, and as soon as a
+ * drag begins.
+ */
+export const HINT_MS = 4200;
+
 /** Read model a view draws from. Always derived from the GameSession. */
 export interface BoardView {
   level: LevelDef;
@@ -82,7 +89,11 @@ export interface GameView {
   sync(board: BoardView): void;
   /** Per-frame animation, including the dragged package's easing. Only the controller calls it. */
   update(dtMs: number): void;
-  /** Releases every object, texture, listener, tween and timer the view created. */
+  /**
+   * Releases every object, texture, listener, tween and timer the view
+   * created. Afterwards no callback handed to the view (cargoPlaced's
+   * onLanded, dispatch callbacks) ever fires; they are cosmetic.
+   */
   dispose(): void;
 
   // --- pointer -> semantic target (no legality checks) ----------------------
@@ -119,7 +130,13 @@ export interface GameView {
   setBeltHover(on: boolean): void;
   /** Tap-to-select highlight on a package, or none. */
   setSelected(cargoId: number | null): void;
+  /**
+   * Gold pulse on the package plus an 'ok' ghost at the target. The view owns
+   * the hint's lifetime: it clears it itself after HINT_MS of update() time
+   * and on beginDrag(), identically in 2D and 3D. A newer showHint replaces it.
+   */
   showHint(cargoId: number, target: { shelf: number; slot: number }): void;
+  /** Removes the hint now (the ghost of an active drag stays). */
   clearHint(): void;
   /** Points at the shelf or package a message refers to (loss reason, tutorial). */
   highlight(h: ViewHighlight): void;

@@ -6,13 +6,15 @@
  * throwing warm cones, the floor with a light pool where the rack stands, and
  * a vignette. The play area is the brightest thing on screen.
  *
- * `MenuBackdrop2D` is the title screen's hero rack (the same HERO level and
- * cargo as the 3D title screen), swaying gently; `LevelsBackdrop2D` is the
- * bare warehouse behind the level grid. Both re-frame themselves on resize.
+ * `MenuBackdrop2D` is the title screen's hero rack (HERO_LEVEL / HERO_CARGO
+ * from render/hero.ts, the same data the 3D title screen uses), swaying
+ * gently; `LevelsBackdrop2D` is the bare warehouse behind the level grid.
+ * Both re-frame themselves on resize.
  */
 
 import { W3 } from '../../game/config';
-import type { LevelDef, PackageType } from '../../game/levels/types';
+import type { PackageType } from '../../game/levels/types';
+import { HERO_CARGO, HERO_LEVEL } from '../hero';
 import { Easing } from '../Tween';
 import type { Backdrop } from '../Stage';
 import { rackHalfWidth, rackTopY } from '../layout';
@@ -21,33 +23,6 @@ import { RackArt2D } from './rack2d';
 import { bakeCargoSprite, freeCanvas, makeCanvas } from './sprites2d';
 import type { CargoSprite } from './sprites2d';
 import type { Host2D, Layer2D } from './types2d';
-
-// ---------------------------------------------------------------------------
-// The title screen's rack. Same data as the 3D title screen (src/ui/Menu.ts),
-// kept here so the 2D path never loads that module's three.js imports.
-// ---------------------------------------------------------------------------
-
-export const HERO_LEVEL: LevelDef = {
-  id: 0,
-  name: 'HERO',
-  objective: '',
-  shelves: [
-    { slots: 6, maxWeight: 99 },
-    { slots: 6, maxWeight: 99 },
-  ],
-  packages: [],
-  balanceTolerance: 99,
-};
-
-/** [type, tier, slot] */
-export const HERO_CARGO: readonly [PackageType, number, number][] = [
-  ['heavy', 1, 0],
-  ['standard', 1, 1],
-  ['fragile', 1, 3],
-  ['standard', 1, 4],
-  ['long', 0, 0],
-  ['priority', 0, 4],
-];
 
 // ---------------------------------------------------------------------------
 // Warehouse

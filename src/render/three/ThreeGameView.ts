@@ -14,6 +14,7 @@ import { W3 } from '../../game/config';
 import type { LevelDef } from '../../game/levels/types';
 import type { TargetKind } from '../../game/session/types';
 import { PlacementSystem } from '../../game/systems/PlacementSystem';
+import { HINT_MS } from '../GameView';
 import type {
   BoardView,
   ClientPoint,
@@ -62,6 +63,8 @@ export class ThreeGameView implements GameView {
   private dragLiftTarget = 0;
   private dragZ: number = W3.dragZ;
   private target: DropTarget | null = null;
+  /** Animation time left on the current hint (0 = none). */
+  private hintLeft = 0;
 
   /** An outcome has been shown; drags and transitions are over. */
   private concluded = false;
@@ -119,9 +122,14 @@ export class ThreeGameView implements GameView {
     this.warehouse.tick(dtMs);
     if (this.dragged) this.updateDrag(dtMs);
     this.updateFalling(dtMs);
+    if (this.hintLeft > 0) {
+      this.hintLeft -= dtMs;
+      if (this.hintLeft <= 0) this.clearHint();
+    }
   }
 
   dispose() {
+    this.hintLeft = 0;
     for (const t of this.timers) clearTimeout(t);
     this.timers = [];
     for (const stop of this.stops) stop();
@@ -278,6 +286,7 @@ export class ThreeGameView implements GameView {
   beginDrag(cargoId: number, p: PointerSample) {
     const c = this.cargo[cargoId];
     if (!c || !this.mounted || this.concluded) return;
+    this.clearHint();
     this.dragged = c;
     this.target = null;
     const wasPlaced = c.state === 'placed';
@@ -391,14 +400,19 @@ export class ThreeGameView implements GameView {
 
   showHint(cargoId: number, target: { shelf: number; slot: number }) {
     const c = this.cargo[cargoId];
-    if (!c) return;
+    if (!c || !this.mounted) return;
+    for (const other of this.cargo) if (other !== c) other.setHinted(false);
     c.setHinted(true);
     this.rack.showGhost(target.shelf, target.slot, c.slots, 'ok');
+    this.hintLeft = HINT_MS;
   }
 
   clearHint() {
+    const had = this.hintLeft > 0;
+    this.hintLeft = 0;
     for (const c of this.cargo) c.setHinted(false);
-    if (!this.dragged) this.rack.hideGhost();
+    // The rack's one ghost belongs to the drag while there is one.
+    if (had && this.mounted && !this.dragged) this.rack.hideGhost();
   }
 
   /** Loss-reason and tutorial pointers arrive in A3; nothing highlights in this build. */

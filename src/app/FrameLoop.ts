@@ -22,6 +22,7 @@ export class FrameLoop {
   /** The page was hidden since the last frame: that gap is never charged. */
   private skipGap = false;
   private watching = false;
+  /** Drawn last each frame. Written only by StageHost (null while a stage is being swapped). */
   stage: Stage | null = null;
 
   start() {

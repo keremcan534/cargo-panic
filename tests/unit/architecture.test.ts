@@ -8,7 +8,7 @@
 
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { test } from 'node:test';
 import { chainTo, isThree, parseImports, reachable } from '../../scripts/lib/import-graph';
 
@@ -45,9 +45,10 @@ for (const entry of PURE_ENTRIES) {
 }
 
 // ---------------------------------------------------------------------------
-// Renderer boundary: only src/render/three/** may use three.js. The app shell,
-// the game controller, the input layer and the DOM screens talk to a Stage /
-// GameView and must not pull three in (so a 2D start never loads it).
+// Renderer boundary: only src/render/three/** may use three.js. The entry,
+// the app shell, the game controller, the input layer, the 2D renderer and
+// the DOM screens talk to a Stage / GameView and must not pull three in, so
+// a 2D start never loads it. 3D is loaded lazily by src/render/createStage.ts.
 // ---------------------------------------------------------------------------
 
 function sourceFiles(dir: string): string[] {
@@ -60,20 +61,28 @@ function sourceFiles(dir: string): string[] {
   return out;
 }
 
+const rel = (f: string) => relative(process.cwd(), f).split(sep).join('/');
+
 const uiScreens = readdirSync('src/ui')
   .filter((f) => f.endsWith('.ts'))
   .map((f) => `src/ui/${f}`);
 
 const THREE_FREE = [
+  'src/main.ts',
   'src/app/Game.ts',
   'src/app/Router.ts',
   'src/app/App.ts',
   'src/app/FrameLoop.ts',
+  'src/app/StageHost.ts',
   'src/input/InteractionController.ts',
   'src/render/GameView.ts',
   'src/render/Stage.ts',
+  'src/render/createStage.ts',
+  'src/render/hero.ts',
+  'src/render/quality.ts',
   'src/render/layout.ts',
   'src/render/Tween.ts',
+  'src/render/canvas2d/Canvas2DStage.ts',
   ...uiScreens,
 ];
 
@@ -83,18 +92,60 @@ for (const entry of THREE_FREE) {
   });
 }
 
+test('src/main.ts cannot reach three.js through static imports', () => {
+  // The 2D first-load path: nothing the entry imports at runtime pulls three in.
+  assert.equal(chainTo('src/main.ts', isThree), null);
+});
+
 test('only src/render/three/** imports three.js directly', () => {
   const offenders = sourceFiles('src')
     .filter((f) => parseImports(f).packages.some(isThree))
-    .map((f) => relative(process.cwd(), f).split('\\').join('/'))
+    .map(rel)
     .filter((f) => !f.startsWith('src/render/three/'));
   assert.deepEqual(offenders, []);
 });
 
-test('only src/main.ts and src/render/three/** reach three.js at all', () => {
+test('only src/render/three/** reaches three.js at all', () => {
   const offenders = sourceFiles('src')
-    .map((f) => relative(process.cwd(), f).split('\\').join('/'))
-    .filter((f) => !f.startsWith('src/render/three/') && f !== 'src/main.ts')
+    .map(rel)
+    .filter((f) => !f.startsWith('src/render/three/'))
     .filter((f) => chainTo(f, isThree) !== null);
   assert.deepEqual(offenders, []);
+});
+
+// ---------------------------------------------------------------------------
+// The one door into the 3D renderer is a dynamic import in createStage.ts.
+// Type-only imports are erased by the compiler and are fine anywhere.
+// ---------------------------------------------------------------------------
+
+const THREE_DIR = resolve('src/render/three') + sep;
+const DYNAMIC_IMPORT = /\bimport\(\s*['"]([^'"]+)['"]\s*\)/g;
+
+function dynamicImports(file: string): string[] {
+  const src = readFileSync(file, 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:'"`])\/\/.*$/gm, '$1');
+  const out: string[] = [];
+  for (const m of src.matchAll(DYNAMIC_IMPORT)) {
+    if (m[1].startsWith('.')) out.push(resolve(dirname(file), m[1]));
+  }
+  return out;
+}
+
+test('nothing outside src/render/three imports a module under it at runtime', () => {
+  const offenders: string[] = [];
+  for (const f of sourceFiles('src')) {
+    if (rel(f).startsWith('src/render/three/')) continue;
+    for (const dep of parseImports(f).local) if (dep.startsWith(THREE_DIR)) offenders.push(`${rel(f)} -> ${rel(dep)}`);
+  }
+  assert.deepEqual(offenders, []);
+});
+
+test('the 3D stage is reached only by the dynamic import in src/render/createStage.ts', () => {
+  const doors: string[] = [];
+  for (const f of sourceFiles('src')) {
+    if (rel(f).startsWith('src/render/three/')) continue;
+    for (const target of dynamicImports(f)) if (target.startsWith(THREE_DIR)) doors.push(`${rel(f)} -> ${rel(target)}`);
+  }
+  assert.deepEqual(doors, ['src/render/createStage.ts -> src/render/three/ThreeStage']);
 });

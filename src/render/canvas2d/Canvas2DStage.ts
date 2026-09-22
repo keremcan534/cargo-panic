@@ -15,7 +15,7 @@
 import { Tweens } from '../Tween';
 import type { GameView } from '../GameView';
 import { StageInitError } from '../Stage';
-import type { Backdrop, BackdropKind, QualityPref, Stage, StageOptions } from '../Stage';
+import type { Backdrop, BackdropKind, QualityPref, Stage, StageContextEvent, StageOptions } from '../Stage';
 import { LevelsBackdrop2D, MenuBackdrop2D } from './backdrops2d';
 import { Canvas2DGameView } from './Canvas2DGameView';
 import { Particles2D } from './Particles2D';
@@ -92,6 +92,11 @@ export class Canvas2DStage implements Stage, Host2D {
 
   setQuality(_q: QualityPref) {
     // The 2D renderer has a single profile.
+  }
+
+  /** A 2D canvas that loses its backing store gets it back by itself and is redrawn next frame. */
+  onContextEvent(_cb: (e: StageContextEvent) => void): () => void {
+    return () => undefined;
   }
 
   render(dtMs: number) {

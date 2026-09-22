@@ -1,20 +1,30 @@
 /**
  * Title screen: the stage's hero-rack backdrop with DOM controls over it.
+ *
+ * The settings button (top right, next to sound) shows the view drawing now
+ * - "2D" or "3D" - next to a gear, so the 2D option is one tap away. It
+ * opens the settings panel: VIEW, 3D QUALITY, sound and vibration.
  */
 
 import type { AppContext, Screen } from '../app/Router';
 import { gameScreen } from '../app/Game';
 import { TOTAL_LEVELS } from '../game/levels/levels';
 import { audio } from '../game/systems/AudioManager';
+import { haptics } from '../game/systems/Haptics';
 import { progress } from '../game/systems/ProgressManager';
 import { formatScore, newRun, seedFromUrl } from '../game/systems/RunManager';
-import type { Backdrop } from '../render/Stage';
+import { t } from '../i18n';
+import type { Backdrop, Stage } from '../render/Stage';
 import { levelSelectScreen } from './LevelSelect';
+import { SettingsPanel } from './Panels';
+import { viewControls } from './ViewSettings';
 import { btn, el, fadeIn, fadeOut, iconBtn, setIcon, uiRoot } from './dom';
 
 export function menuScreen(ctx: AppContext): Screen {
   let root: HTMLElement;
   let backdrop: Backdrop | undefined;
+  let settings: SettingsPanel | null = null;
+  let offHost: (() => void) | undefined;
 
   const go = (factory: Parameters<typeof ctx.router.go>[0]) => {
     void fadeOut(200).then(() => ctx.router.go(factory));
@@ -35,6 +45,46 @@ export function menuScreen(ctx: AppContext): Screen {
         if (on) audio.click();
       }, 'Sound');
 
+      // Gear + the view drawing now: the 2D / 3D choice is visible from the title screen.
+      const viewLabel = el('span', { class: 'mode', text: '' });
+      const settingsBtn = el('button', { class: 'icon-btn view-btn' });
+      settingsBtn.type = 'button';
+      settingsBtn.dataset.role = 'settings';
+      settingsBtn.title = t('menu.settings');
+      settingsBtn.setAttribute('aria-label', t('menu.settings'));
+      setIcon(settingsBtn, 'gear');
+      settingsBtn.append(viewLabel);
+      const showMode = () => {
+        viewLabel.textContent = ctx.mode === '3d' ? t('settings.view3d') : t('settings.view2d');
+      };
+      showMode();
+      settingsBtn.addEventListener('pointerdown', () => audio.unlock());
+      settingsBtn.addEventListener('click', () => {
+        if (settings) return;
+        audio.click();
+        haptics.tap();
+        settings = new SettingsPanel({
+          view: viewControls(ctx),
+          soundOn: progress.soundOn,
+          hapticsOn: progress.hapticsOn,
+          onToggleSound: () => {
+            const on = !progress.soundOn;
+            audio.setEnabled(on);
+            setIcon(soundBtn, on ? 'sound-on' : 'sound-off');
+            return on;
+          },
+          onToggleHaptics: () => {
+            const on = !progress.hapticsOn;
+            haptics.setEnabled(on);
+            return on;
+          },
+          onClose: () => {
+            settings = null;
+          },
+        });
+      });
+      offHost = ctx.host.onEvent(showMode);
+
       const play = btn(
         done === 0 ? 'PLAY' : `CONTINUE - LEVEL ${progress.unlocked}`,
         () => go((c) => gameScreen(c, { levelId: progress.unlocked })),
@@ -48,7 +98,7 @@ export function menuScreen(ctx: AppContext): Screen {
       levels.dataset.role = 'levels';
 
       root = el('div', { class: 'screen menu fade-in' }, [
-        el('div', { class: 'top' }, [soundBtn]),
+        el('div', { class: 'top' }, [settingsBtn, soundBtn]),
         el('div', { class: 'wordmark' }, [
           el('div', { class: 'l1', text: 'CARGO' }),
           el('div', { class: 'l2', text: 'PANIC' }),
@@ -75,9 +125,17 @@ export function menuScreen(ctx: AppContext): Screen {
       fadeIn();
     },
     exit() {
+      offHost?.();
       backdrop?.dispose();
       backdrop = undefined;
       root.remove();
+    },
+    detachStage() {
+      backdrop?.dispose();
+      backdrop = undefined;
+    },
+    attachStage(stage: Stage) {
+      backdrop = stage.showBackdrop('menu');
     },
   };
 }

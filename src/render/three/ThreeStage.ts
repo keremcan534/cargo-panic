@@ -1,11 +1,15 @@
 /**
  * The Three.js Stage: one WebGL renderer, camera and post chain, plus the
- * pooled particles, camera shake and adaptive bloom every 3D screen shares.
+ * pooled particles, camera shake and quality profiles every 3D screen shares.
  *
  * It owns no animation loop. The app's FrameLoop advances the tweens, runs
  * the screens' updates and then calls `render(dt)` once per frame. Screens do
  * not touch the scene directly: they get a GameView from `createGameView()`
  * or a menu backdrop from `showBackdrop()`, and dispose what they were given.
+ *
+ * The app never imports this module statically: src/render/createStage.ts
+ * loads it with a dynamic import only when the 3D view is chosen, so a 2D
+ * start never downloads or runs three.js.
  */
 
 import * as THREE from 'three';
@@ -14,25 +18,20 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import type { GameView } from '../GameView';
+import { QualityGovernor } from '../quality';
+import type { QualityProfile } from '../quality';
 import { StageInitError } from '../Stage';
-import type { Backdrop, BackdropKind, QualityPref, Stage, StageOptions } from '../Stage';
+import type { Backdrop, BackdropKind, QualityPref, Stage, StageContextEvent, StageOptions } from '../Stage';
 import { Tweens } from '../Tween';
 import { levelsBackdrop, menuBackdrop } from './backdrops';
 import { disposeTree } from './dispose';
 import { applyFraming, CAMERA_FOV } from './Framing';
-import { releaseSharedMaterials } from './Materials';
+import { refreshSharedMaterials, releaseSharedMaterials } from './Materials';
 import { Particles } from './Particles';
 import { ThreeGameView } from './ThreeGameView';
 
 /** Extra camera placement applied after the framing solve (and again on every resize). */
 export type FramingAdjust = (camera: THREE.PerspectiveCamera) => void;
-
-/** Beyond this the framebuffer costs more than the sharpness is worth. */
-const MAX_DPR = 2;
-/** A frame slower than this counts towards the adaptive quality drop. */
-const SLOW_FRAME_MS = 26;
-/** ~1.5 s of sustained slow frames. */
-const SLOW_FRAME_LIMIT = 90;
 
 export class ThreeStage implements Stage {
   readonly mode = '3d' as const;
@@ -45,6 +44,7 @@ export class ThreeStage implements Stage {
   private composer: EffectComposer;
   private bloom: UnrealBloomPass;
   private updaters = new Set<(dtMs: number) => void>();
+  private contextListeners = new Set<(e: StageContextEvent) => void>();
 
   private framing: { tiers: number; maxSlots: number; adjust?: FramingAdjust } = { tiers: 2, maxSlots: 5 };
   private shakeAmp = 0;
@@ -52,55 +52,71 @@ export class ThreeStage implements Stage {
   private shakeSeed = 0;
   private basePos = new THREE.Vector3();
 
-  // Adaptive quality: a sustained slow stretch drops bloom once.
-  private slowFrames = 0;
-  private bloomOn = true;
-  private strugglingValue = false;
-  private quality: QualityPref;
+  /** Quality preference plus the adaptive ladder (render/quality.ts). */
+  private governor: QualityGovernor;
+  private applied: QualityProfile | null = null;
   private reducedMotion: boolean;
+  private contextLost = false;
+  private shaderFailed = false;
+  private started = false;
   private disposed = false;
 
+  /**
+   * Throws StageInitError when WebGL is missing, the context cannot be
+   * created, or the first frame's shaders fail to compile. Whatever was
+   * created by then is released first (listeners, renderer, WebGL context,
+   * canvas), so a failed attempt leaves nothing behind.
+   */
   constructor(
     private parent: HTMLElement,
     opts: Partial<StageOptions> = {},
   ) {
-    this.quality = opts.quality ?? 'auto';
+    this.governor = new QualityGovernor(opts.quality ?? 'auto');
     this.reducedMotion = opts.reducedMotion ?? false;
     try {
       this.gl = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     } catch (e) {
       throw new StageInitError('3d', e);
     }
-    this.gl.setPixelRatio(Math.min(MAX_DPR, window.devicePixelRatio || 1));
-    this.gl.setSize(parent.clientWidth, parent.clientHeight);
-    this.gl.shadowMap.enabled = true;
-    this.gl.shadowMap.type = THREE.PCFSoftShadowMap;
-    this.gl.toneMapping = THREE.ACESFilmicToneMapping;
-    this.gl.toneMappingExposure = 0.95;
-    this.gl.domElement.id = 'game-canvas';
-    parent.appendChild(this.gl.domElement);
+    try {
+      const gl = this.gl;
+      gl.debug.onShaderError = () => this.onShaderError();
+      gl.setSize(parent.clientWidth, parent.clientHeight);
+      gl.shadowMap.type = THREE.PCFSoftShadowMap;
+      gl.toneMapping = THREE.ACESFilmicToneMapping;
+      gl.toneMappingExposure = 0.95;
+      gl.domElement.id = 'game-canvas';
+      gl.domElement.addEventListener('webglcontextlost', this.onContextLost);
+      gl.domElement.addEventListener('webglcontextrestored', this.onContextRestored);
+      parent.appendChild(gl.domElement);
 
-    this.scene.background = new THREE.Color(0x0b1017);
-    this.scene.fog = new THREE.FogExp2(0x0b1017, 0.008);
+      this.scene.background = new THREE.Color(0x0b1017);
+      this.scene.fog = new THREE.FogExp2(0x0b1017, 0.008);
 
-    this.camera = new THREE.PerspectiveCamera(CAMERA_FOV, this.aspect(), 0.1, 120);
-    this.frame(2, 5);
+      this.camera = new THREE.PerspectiveCamera(CAMERA_FOV, this.aspect(), 0.1, 120);
+      this.frame(2, 5);
 
-    this.composer = new EffectComposer(this.gl);
-    this.composer.addPass(new RenderPass(this.scene, this.camera));
-    this.bloom = new UnrealBloomPass(
-      new THREE.Vector2(parent.clientWidth, parent.clientHeight),
-      0.38,
-      0.65,
-      0.86,
-    );
-    this.composer.addPass(this.bloom);
-    this.composer.addPass(new OutputPass());
+      this.composer = new EffectComposer(gl);
+      this.composer.addPass(new RenderPass(this.scene, this.camera));
+      this.bloom = new UnrealBloomPass(new THREE.Vector2(parent.clientWidth, parent.clientHeight), 0.38, 0.65, 0.86);
+      this.composer.addPass(this.bloom);
+      this.composer.addPass(new OutputPass());
 
-    this.particles = new Particles(this.scene);
-    if (this.quality === 'low') this.setBloom(false);
+      this.particles = new Particles(this.scene);
+      this.applyProfile(this.governor.profile);
+      window.addEventListener('resize', this.onResize);
 
-    window.addEventListener('resize', this.onResize);
+      // One frame now compiles the post chain and particle shaders, so a GPU
+      // that cannot run them fails here (and the app starts in 2D) instead
+      // of mid-game.
+      this.composer.render();
+      if (this.shaderFailed) throw new Error('a shader failed to compile');
+      if (gl.getContext().isContextLost()) throw new Error('the WebGL context was lost during start-up');
+      this.started = true;
+    } catch (e) {
+      this.dispose();
+      throw e instanceof StageInitError ? e : new StageInitError('3d', e);
+    }
   }
 
   get canvas(): HTMLCanvasElement {
@@ -108,7 +124,17 @@ export class ThreeStage implements Stage {
   }
 
   get struggling(): boolean {
-    return this.strugglingValue;
+    return this.governor.struggling;
+  }
+
+  /** The preference in force and the profile the stage draws with (tests, debugging). */
+  get quality(): { preference: QualityPref; profile: QualityProfile; pixelRatio: number; shadows: boolean } {
+    return {
+      preference: this.governor.preference,
+      profile: { ...this.governor.profile },
+      pixelRatio: this.gl.getPixelRatio(),
+      shadows: this.gl.shadowMap.enabled,
+    };
   }
 
   private aspect() {
@@ -132,53 +158,126 @@ export class ThreeStage implements Stage {
     if (on) this.shakeUntil = 0;
   }
 
+  /** low / high are fixed profiles; auto starts at high and steps down on sustained slow frames. */
   setQuality(q: QualityPref) {
-    this.quality = q;
-    this.slowFrames = 0;
-    this.strugglingValue = false;
-    this.setBloom(q !== 'low');
+    if (this.disposed) return;
+    this.governor.setPreference(q);
+    this.applyProfile(this.governor.profile);
+  }
+
+  onContextEvent(cb: (e: StageContextEvent) => void): () => void {
+    this.contextListeners.add(cb);
+    return () => this.contextListeners.delete(cb);
   }
 
   /** Draws one frame: backdrop animation, particles, shake, post chain, then slow-frame bookkeeping. */
   render(dtMs: number) {
-    if (this.disposed) return;
+    if (this.disposed || this.contextLost) return;
     for (const u of this.updaters) u(dtMs);
     this.particles.update(dtMs);
     this.applyShake(performance.now());
 
     this.composer.render();
 
-    if (dtMs > SLOW_FRAME_MS) this.slowFrames++;
-    else this.slowFrames = Math.max(0, this.slowFrames - 2);
-    if (this.slowFrames > SLOW_FRAME_LIMIT) {
-      this.slowFrames = 0;
-      // Bloom is the first thing to go; after that there is nothing left to drop.
-      if (this.bloomOn && this.quality === 'auto') this.setBloom(false);
-      else if (!this.bloomOn) this.strugglingValue = true;
-    }
+    if (this.governor.frame(dtMs)) this.applyProfile(this.governor.profile);
   }
 
   /**
    * Frees everything: particles, the post chain's render targets and
    * shaders, whatever is still in the scene, the shared materials, and the
-   * WebGL context itself. The canvas leaves the DOM.
+   * WebGL context itself. The canvas leaves the DOM. Safe on a half-built
+   * stage (the constructor calls it when start-up fails) and idempotent.
    */
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
     window.removeEventListener('resize', this.onResize);
     this.updaters.clear();
+    this.contextListeners.clear();
     this.tweens.clear();
-    this.particles.dispose();
-    for (const pass of this.composer.passes) pass.dispose();
-    this.composer.dispose();
-    for (const child of [...this.scene.children]) disposeTree(child, true);
-    releaseSharedMaterials();
+    const canvas = this.gl.domElement;
+    // forceContextLoss() below fires webglcontextlost: that one is ours, not news.
+    canvas.removeEventListener('webglcontextlost', this.onContextLost);
+    canvas.removeEventListener('webglcontextrestored', this.onContextRestored);
+    const quietly = (fn: () => void) => {
+      try {
+        fn();
+      } catch {
+        /* a half-built or lost context: keep releasing the rest */
+      }
+    };
+    // Fields assigned later in the constructor may not exist on a failed start.
+    const particles = this.particles as Particles | undefined;
+    const composer = this.composer as EffectComposer | undefined;
+    if (particles) quietly(() => particles.dispose());
+    if (composer) {
+      for (const pass of composer.passes) quietly(() => pass.dispose());
+      quietly(() => composer.dispose());
+    }
+    for (const child of [...this.scene.children]) quietly(() => disposeTree(child, true));
+    quietly(() => releaseSharedMaterials());
     this.scene.background = null;
     this.scene.fog = null;
-    this.gl.dispose();
-    this.gl.forceContextLoss();
-    this.gl.domElement.remove();
+    this.gl.debug.onShaderError = null;
+    quietly(() => this.gl.dispose());
+    quietly(() => this.gl.forceContextLoss());
+    canvas.remove();
+  }
+
+  // ==========================================================================
+  // Quality and context
+  // ==========================================================================
+
+  /** Bloom, shadows, pixel ratio and particle budget for one profile. */
+  private applyProfile(p: QualityProfile) {
+    const prev = this.applied;
+    this.applied = { ...p };
+    this.bloom.enabled = p.bloom;
+    if (!prev || prev.shadows !== p.shadows) {
+      this.gl.shadowMap.enabled = p.shadows;
+      // three.js keys programs on the shadow-map flag but does not re-check
+      // it for a built material: everything in use rebuilds its program once.
+      if (prev) {
+        this.scene.traverse((o) => {
+          const m = (o as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
+          if (m) for (const x of Array.isArray(m) ? m : [m]) x.needsUpdate = true;
+        });
+        refreshSharedMaterials();
+      }
+    }
+    const ratio = Math.min(p.dprCap, window.devicePixelRatio || 1);
+    if (this.gl.getPixelRatio() !== ratio) {
+      this.gl.setPixelRatio(ratio);
+      this.composer.setPixelRatio(ratio);
+      this.onResize();
+    }
+    this.particles.setBudget(p.particles);
+  }
+
+  private emitContext(e: StageContextEvent) {
+    for (const cb of [...this.contextListeners]) cb(e);
+  }
+
+  private onContextLost = (e: Event) => {
+    e.preventDefault(); // lets the browser restore it
+    if (this.disposed || this.contextLost) return;
+    this.contextLost = true;
+    this.emitContext('lost');
+  };
+
+  private onContextRestored = () => {
+    if (this.disposed || !this.contextLost || this.shaderFailed) return;
+    this.contextLost = false;
+    this.emitContext('restored');
+  };
+
+  /** A shader that fails mid-game cannot be fixed by waiting: reported as a loss that never restores. */
+  private onShaderError() {
+    this.shaderFailed = true;
+    // During start-up the constructor throws instead.
+    if (!this.started || this.disposed || this.contextLost) return;
+    this.contextLost = true;
+    this.emitContext('lost');
   }
 
   // ==========================================================================
@@ -208,12 +307,8 @@ export class ThreeStage implements Stage {
     this.shakeUntil = Math.max(this.shakeUntil, performance.now() + ms);
   }
 
-  setBloom(on: boolean) {
-    this.bloomOn = on;
-    this.bloom.enabled = on;
-  }
-
   private onResize = () => {
+    if (this.disposed) return;
     const w = this.parent.clientWidth;
     const h = this.parent.clientHeight;
     this.gl.setSize(w, h);

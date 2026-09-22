@@ -55,7 +55,7 @@ export function btn(
   return b;
 }
 
-export type IconKind = 'pause' | 'restart' | 'back' | 'help' | 'sound-on' | 'sound-off';
+export type IconKind = 'pause' | 'restart' | 'back' | 'help' | 'sound-on' | 'sound-off' | 'gear';
 
 const ICONS: Record<IconKind, string> = {
   pause: '<rect class="fill" x="6" y="4" width="4" height="16" rx="1"/><rect class="fill" x="14" y="4" width="4" height="16" rx="1"/>',
@@ -64,6 +64,7 @@ const ICONS: Record<IconKind, string> = {
   help: '<path d="M8.5 9.5a3.5 3.5 0 1 1 5 3.2c-1 .6-1.5 1.2-1.5 2.3"/><circle class="fill" cx="12" cy="19" r="1.4"/>',
   'sound-on': '<path class="fill" d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16 9a4 4 0 0 1 0 6"/><path d="M18.5 6.5a8 8 0 0 1 0 11"/>',
   'sound-off': '<path class="fill" d="M4 9h4l5-4v14l-5-4H4z"/><path class="bad" d="M16 9l5 6M21 9l-5 6"/>',
+  gear: '<circle cx="12" cy="12" r="6.2"/><circle cx="12" cy="12" r="2.2"/><path d="M12 2.6v3.2M12 18.2v3.2M21.4 12h-3.2M5.8 12H2.6M18.6 5.4l-2.3 2.3M7.7 16.3l-2.3 2.3M18.6 18.6l-2.3-2.3M7.7 7.7 5.4 5.4"/>',
 };
 
 export function iconBtn(kind: IconKind, onClick: () => void, title: string = kind): HTMLButtonElement {

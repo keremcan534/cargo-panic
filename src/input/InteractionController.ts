@@ -6,8 +6,11 @@
  * path). Rules it enforces:
  *
  * - One active pointer. While a package is in hand every other pointer is
- *   ignored; the active one is captured, and pointercancel, lostpointercapture
- *   and window blur put the package back where the board says it is.
+ *   ignored; the active one is captured, and pointercancel, lostpointercapture,
+ *   window blur and a window resize / orientation change put the package back
+ *   where the board says it is.
+ * - The surface is the stable #game-root element, not the stage canvas, so a
+ *   view switch only swaps the view (setView), never the listeners.
  * - Picking up is `session.hold()` only - the board does not change.
  * - Release commits exactly the target that was last shown (ghost / belt
  *   highlight), never a fresh hit-test: one `move` or one `toBelt`, or nothing.
@@ -48,7 +51,7 @@ export interface InteractionHooks {
   toBelt(cargoId: number): void;
 }
 
-/** Event source the controller listens on (the stage canvas in the game). */
+/** Event source the controller listens on (#game-root in the game: it outlives any canvas). */
 export interface PointerSurface {
   addEventListener(type: string, fn: (e: Event) => void): void;
   removeEventListener(type: string, fn: (e: Event) => void): void;
@@ -62,7 +65,7 @@ export interface InteractionOptions {
   session: GameSession;
   view: GameView;
   hooks: InteractionHooks;
-  /** Blur source; defaults to `window` when there is one. */
+  /** Source of blur / resize / orientationchange; defaults to `window` when there is one. */
   blurTarget?: Pick<PointerSurface, 'addEventListener' | 'removeEventListener'> | null;
 }
 
@@ -79,7 +82,7 @@ interface Active {
 export class InteractionController {
   private readonly surface: PointerSurface;
   private readonly session: GameSession;
-  private readonly view: GameView;
+  private view: GameView;
   private readonly hooks: InteractionHooks;
   private readonly blurTarget: InteractionOptions['blurTarget'];
 
@@ -120,6 +123,8 @@ export class InteractionController {
     s.addEventListener('pointercancel', this.onCancel);
     s.addEventListener('lostpointercapture', this.onLost);
     this.blurTarget?.addEventListener('blur', this.onBlur);
+    this.blurTarget?.addEventListener('resize', this.onBlur);
+    this.blurTarget?.addEventListener('orientationchange', this.onBlur);
   }
 
   /** Stops listening. Does not touch the session or the view (the screen is going away). */
@@ -133,6 +138,8 @@ export class InteractionController {
     s.removeEventListener('pointercancel', this.onCancel);
     s.removeEventListener('lostpointercapture', this.onLost);
     this.blurTarget?.removeEventListener('blur', this.onBlur);
+    this.blurTarget?.removeEventListener('resize', this.onBlur);
+    this.blurTarget?.removeEventListener('orientationchange', this.onBlur);
     const a = this.active;
     this.active = null;
     this.shown = null;
@@ -148,7 +155,18 @@ export class InteractionController {
   private onLost = (e: Event) => {
     if (this.active && (e as unknown as PointerInput).pointerId === this.active.pointerId) this.cancel();
   };
+  /** Blur, resize, orientation change: the layout under the finger is no longer trusted. */
   private onBlur = () => this.cancel();
+
+  /**
+   * Points the controller at a new view (after a render-mode switch). A drag
+   * still in hand is put back on the old view first; the listeners stay.
+   */
+  setView(view: GameView) {
+    if (view === this.view) return;
+    this.cancel();
+    this.view = view;
+  }
 
   // ==========================================================================
   // Pointer events

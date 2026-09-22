@@ -302,28 +302,33 @@ Haptics currently go through `navigator.vibrate`
 
 ```
 src/
-  main.ts                  creates the stage, app and frame loop; browser gesture lockdown
+  main.ts                  boots the saved view (2D or 3D) through the StageHost; gesture lockdown
   app/
-    App.ts                 current Stage + the single FrameLoop + Router
+    App.ts                 StageHost + the single FrameLoop + Router; view switching, context-loss fallback
+    StageHost.ts           owns the one Stage, the only writer of loop.stage; serialised switches
     FrameLoop.ts           the only requestAnimationFrame loop
     Router.ts              one stage, one UI root, one screen at a time
     Game.ts                gameplay controller: GameSession, HUD/panels, audio, win/fail, endless
+    PauseReasons.ts        why the session is paused (menu, legend, switching, hidden, context-lost)
   input/
     InteractionController.ts  pointer state machine -> session commands + view calls
   render/
     GameView.ts, Stage.ts  renderer contracts (no three.js)
+    createStage.ts         makes a Stage; the ONLY (dynamic) import of the 3D renderer, 2D fallback
+    quality.ts             3D quality profiles (auto / low / high) and the adaptive ladder
+    hero.ts                the title screen's hero rack, shared by both renderers
     layout.ts              screen bands and slot hit-testing shared by every renderer
     Tween.ts               tween runner
     art/                   canvas artwork for cargo faces and shelf labels
-    canvas2d/              2D geometry (Canvas 2D view arrives in A2)
-    three/                 everything that imports three.js:
+    canvas2d/              the Canvas 2D renderer: stage, game view, backdrops, particles
+    three/                 everything that imports three.js (loaded only when 3D is chosen):
       ThreeStage.ts        WebGL renderer, camera, post chain, particles, shake, picking
       ThreeGameView.ts     the 3D game view (drag, landings, spills, dispatch, confetti)
       backdrops.ts         menu and level-select scenes
       Framing.ts           camera framing solver
       Materials.ts         PBR materials from the canvas artwork
       Warehouse.ts, Particles.ts, world/{Rack3D,Shelf3D,Cargo3D,Conveyor3D}
-  ui/                      DOM: Hud, Meter, Panels, Menu, LevelSelect, Splash
+  ui/                      DOM: Hud, Meter, Panels, Menu, LevelSelect, Splash, ViewSettings, Notice
   game/
     config.ts              tuning constants and world proportions
     session/               GameSession: the pure rules state and commands

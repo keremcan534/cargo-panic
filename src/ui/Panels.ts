@@ -1,6 +1,7 @@
 /**
- * Modal overlays: level cleared, level failed, pause, cargo guide, run over -
- * plus the non-blocking wave-clear and coaching cards. All DOM.
+ * Modal overlays: level cleared, level failed, pause, settings, cargo guide,
+ * run over - plus the non-blocking wave-clear, coaching and suggestion
+ * cards. All DOM.
  */
 
 import { PACKAGE_SPECS } from '../game/levels/types';
@@ -8,7 +9,11 @@ import type { PackageType } from '../game/levels/types';
 import { audio } from '../game/systems/AudioManager';
 import { formatScore, formatSeed } from '../game/systems/RunManager';
 import type { WaveResult } from '../game/systems/RunManager';
+import { t } from '../i18n';
 import { STAR_SVG, btn, el, uiRoot } from './dom';
+import type { BtnStyle } from './dom';
+import { viewSection } from './ViewSettings';
+import type { ViewControls } from './ViewSettings';
 
 // ---------------------------------------------------------------------------
 
@@ -16,6 +21,8 @@ class Modal {
   protected root: HTMLElement;
   protected card: HTMLElement;
   private closing = false;
+  /** Run once when the panel starts closing (unsubscribe listeners and the like). */
+  protected cleanups: (() => void)[] = [];
 
   constructor() {
     this.card = el('div', { class: 'card' });
@@ -24,9 +31,14 @@ class Modal {
     requestAnimationFrame(() => this.root.classList.add('on'));
   }
 
+  get open(): boolean {
+    return !this.closing;
+  }
+
   close(after?: () => void) {
     if (this.closing) return;
     this.closing = true;
+    for (const fn of this.cleanups.splice(0)) fn();
     this.root.classList.add('leave');
     setTimeout(() => {
       this.root.remove();
@@ -168,43 +180,116 @@ export class FailPanel extends Modal {
 
 // ---------------------------------------------------------------------------
 
+export interface PauseOptions {
+  soundOn: boolean;
+  hapticsOn: boolean;
+  onToggleSound: () => boolean;
+  onToggleHaptics: () => boolean;
+  onResume: () => void;
+  onRestart: () => void;
+  onExit: () => void;
+  restartLabel: string;
+  exitLabel: string;
+  /** VIEW 2D | 3D and 3D QUALITY. While a switch runs, RESUME / restart / exit and the toggle are disabled. */
+  view?: ViewControls;
+}
+
+interface ToggleLabels {
+  soundOn: string;
+  soundOff: string;
+  vibrationOn: string;
+  vibrationOff: string;
+}
+
+/** The pause panel's existing copy (A3 moves it to the text dictionary). */
+const PAUSE_TOGGLES: ToggleLabels = {
+  soundOn: 'SOUND: ON',
+  soundOff: 'SOUND: OFF',
+  vibrationOn: 'VIBRATION: ON',
+  vibrationOff: 'VIBRATION: OFF',
+};
+
+/** SOUND / VIBRATION on-off buttons, side by side. */
+function toggleRow(
+  opts: { soundOn: boolean; hapticsOn: boolean; onToggleSound: () => boolean; onToggleHaptics: () => boolean },
+  labels: ToggleLabels,
+) {
+  const style = (on: boolean) => `btn ${on ? 'secondary' : 'ghost'} sm half`;
+  const sound = btn(opts.soundOn ? labels.soundOn : labels.soundOff, () => {
+    const on = opts.onToggleSound();
+    sound.textContent = on ? labels.soundOn : labels.soundOff;
+    sound.className = style(on);
+  }, opts.soundOn ? 'secondary' : 'ghost', 'sm', 'half');
+  sound.dataset.role = 'sound';
+  const haptic = btn(opts.hapticsOn ? labels.vibrationOn : labels.vibrationOff, () => {
+    const on = opts.onToggleHaptics();
+    haptic.textContent = on ? labels.vibrationOn : labels.vibrationOff;
+    haptic.className = style(on);
+  }, opts.hapticsOn ? 'secondary' : 'ghost', 'sm', 'half');
+  haptic.dataset.role = 'vibration';
+  return el('div', { class: 'row toggles' }, [sound, haptic]);
+}
+
 export class PausePanel extends Modal {
+  private locked: HTMLButtonElement[] = [];
+
+  constructor(opts: PauseOptions) {
+    super();
+    this.root.classList.add('pause');
+    this.headline('PAUSED');
+    const view = opts.view;
+    const idle = () => !view?.busy();
+    if (view) {
+      const section = viewSection(view, { note: true });
+      this.card.append(section.el);
+      this.cleanups.push(section.dispose);
+      this.cleanups.push(view.subscribe(() => this.setBusy(view.busy())));
+    }
+    const resume = btn('RESUME', () => idle() && this.close(opts.onResume), 'primary', 'lg');
+    resume.dataset.role = 'resume';
+    const restart = btn(opts.restartLabel, () => idle() && this.close(opts.onRestart));
+    restart.dataset.role = 'restart';
+    const exit = btn(opts.exitLabel, () => idle() && this.close(opts.onExit), 'ghost');
+    exit.dataset.role = 'exit';
+    this.locked = [resume, restart, exit];
+    this.actions(resume, toggleRow(opts, PAUSE_TOGGLES), restart, exit);
+    this.setBusy(!idle());
+  }
+
+  /** While the view is being switched the player can neither resume nor leave. */
+  private setBusy(busy: boolean) {
+    for (const b of this.locked) b.disabled = busy;
+    this.card.classList.toggle('busy', busy);
+  }
+}
+
+/** The main menu's settings: view, 3D quality, sound and vibration. */
+export class SettingsPanel extends Modal {
   constructor(opts: {
+    view: ViewControls;
     soundOn: boolean;
     hapticsOn: boolean;
     onToggleSound: () => boolean;
     onToggleHaptics: () => boolean;
-    onResume: () => void;
-    onRestart: () => void;
-    onExit: () => void;
-    restartLabel: string;
-    exitLabel: string;
+    onClose: () => void;
   }) {
     super();
-    this.headline('PAUSED');
-    const sound = btn(
-      opts.soundOn ? 'SOUND: ON' : 'SOUND: OFF',
-      () => {
-        const on = opts.onToggleSound();
-        sound.textContent = on ? 'SOUND: ON' : 'SOUND: OFF';
-        sound.className = `btn ${on ? 'secondary' : 'ghost'} md`;
-      },
-      opts.soundOn ? 'secondary' : 'ghost',
+    this.root.classList.add('settings');
+    this.headline(t('settings.title'));
+    const section = viewSection(opts.view);
+    this.card.append(section.el);
+    this.cleanups.push(section.dispose);
+    const done = btn(t('settings.close'), () => this.close(opts.onClose), 'primary', 'lg');
+    done.dataset.role = 'close-settings';
+    this.actions(
+      toggleRow(opts, {
+        soundOn: t('pause.soundOn'),
+        soundOff: t('pause.soundOff'),
+        vibrationOn: t('pause.vibrationOn'),
+        vibrationOff: t('pause.vibrationOff'),
+      }),
+      done,
     );
-    const haptic = btn(
-      opts.hapticsOn ? 'VIBRATION: ON' : 'VIBRATION: OFF',
-      () => {
-        const on = opts.onToggleHaptics();
-        haptic.textContent = on ? 'VIBRATION: ON' : 'VIBRATION: OFF';
-        haptic.className = `btn ${on ? 'secondary' : 'ghost'} md`;
-      },
-      opts.hapticsOn ? 'secondary' : 'ghost',
-    );
-    const resume = btn('RESUME', () => this.close(opts.onResume), 'primary', 'lg');
-    resume.dataset.role = 'resume';
-    const exit = btn(opts.exitLabel, () => this.close(opts.onExit), 'ghost');
-    exit.dataset.role = 'exit';
-    this.actions(sound, haptic, resume, btn(opts.restartLabel, () => this.close(opts.onRestart)), exit);
   }
 }
 
@@ -316,6 +401,45 @@ export class WaveClearCard {
   }
 
   dismiss() {
+    this.el.classList.add('out');
+    setTimeout(() => this.el.remove(), 240);
+  }
+}
+
+/**
+ * A one-line suggestion with a choice, shown between shipments and never
+ * blocking the game (e.g. "3D is slow here - switch to 2D?"). Any button
+ * dismisses it.
+ */
+export class SuggestCard {
+  private el: HTMLElement;
+  private gone = false;
+
+  constructor(text: string, choices: { label: string; role: string; style: BtnStyle; onPick: () => void }[]) {
+    const buttons = choices.map((c) => {
+      const b = btn(c.label, () => {
+        this.dismiss();
+        c.onPick();
+      }, c.style, 'sm');
+      b.dataset.role = c.role;
+      return b;
+    });
+    this.el = el('div', { class: 'suggest', text: '' }, [
+      el('div', { class: 'text', text }),
+      el('div', { class: 'row' }, buttons),
+    ]);
+    this.el.setAttribute('role', 'dialog');
+    uiRoot().append(this.el);
+    requestAnimationFrame(() => this.el.classList.add('on'));
+  }
+
+  get open(): boolean {
+    return !this.gone;
+  }
+
+  dismiss() {
+    if (this.gone) return;
+    this.gone = true;
     this.el.classList.add('out');
     setTimeout(() => this.el.remove(), 240);
   }
