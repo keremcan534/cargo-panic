@@ -5,3 +5,5 @@ dist-ssr
 .DS_Store
 .claude/
 shots/
+test-results/
+playwright-report/

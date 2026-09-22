@@ -9,9 +9,13 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "validate": "tsx scripts/validate-levels.ts",
-    "validate:endless": "tsx scripts/validate-endless.ts"
+    "validate:endless": "tsx scripts/validate-endless.ts",
+    "test": "node --import tsx --test \"tests/unit/**/*.test.ts\"",
+    "baseline": "tsx scripts/baseline-snapshot.ts",
+    "test:e2e": "playwright test"
   },
   "devDependencies": {
+    "@playwright/test": "1.56.1",
     "@types/node": "^26.3.0",
     "@types/three": "^0.170.0",
     "tsx": "^4.19.2",
