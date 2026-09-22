@@ -186,6 +186,8 @@ function sanitizeActive(raw: unknown): ActivePlay | null {
   if (!isObj(raw)) return null;
   if (raw.kind === 'campaign') {
     if (!num(raw.levelId) || !num(raw.rulesetVersion) || !looksLikeShipment(raw.shipment)) return null;
+    const src = raw.shipment.source as { mode?: unknown; levelId?: unknown };
+    if (src.mode !== 'campaign' || src.levelId !== raw.levelId) return null;
     return { kind: 'campaign', levelId: raw.levelId, rulesetVersion: raw.rulesetVersion, shipment: raw.shipment };
   }
   if (raw.kind === 'endless') {
@@ -193,6 +195,12 @@ function sanitizeActive(raw: unknown): ActivePlay | null {
     if (!run || !num(raw.rulesetVersion) || !num(raw.generatorVersion)) return null;
     const shipment = raw.shipment === null ? null : looksLikeShipment(raw.shipment) ? raw.shipment : undefined;
     if (shipment === undefined) return null;
+    // The run and the shipment must describe the same wave of the same shift.
+    if (shipment) {
+      const src = shipment.source as { mode?: unknown; seed?: unknown; wave?: unknown };
+      if (src.mode !== 'endless' || src.seed !== run.seed || src.wave !== run.wave) return null;
+      if (run.rewardedThrough >= run.wave) return null;
+    }
     return {
       kind: 'endless',
       rulesetVersion: raw.rulesetVersion,

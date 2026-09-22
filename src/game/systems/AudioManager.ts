@@ -35,13 +35,16 @@ class Audio {
   private master: GainNode | null = null;
   private noiseBuf: AudioBuffer | null = null;
   private failed = false;
+  /** Set while the app is in the background: nothing may restart the context. */
+  private suspended = false;
 
   get enabled() {
-    return progress.soundOn && !this.failed;
+    return progress.soundOn && !this.failed && !this.suspended;
   }
 
   /** Safe to call on every pointer down; only the first call does work. */
   unlock() {
+    if (this.suspended) return;
     if (this.ctx || this.failed) {
       if (this.ctx && this.ctx.state === 'suspended') void this.ctx.resume();
       return;
@@ -71,11 +74,13 @@ class Audio {
 
   /** Silences everything immediately (app backgrounded, ad shown). */
   suspend() {
+    this.suspended = true;
     if (this.ctx && this.ctx.state === 'running') void this.ctx.suspend();
   }
 
   /** Allows sound again; the context restarts on the next user gesture if the browser needs one. */
   resume() {
+    this.suspended = false;
     if (this.ctx && this.ctx.state === 'suspended') void this.ctx.resume();
   }
 

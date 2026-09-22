@@ -28,6 +28,11 @@ export class FrameLoop {
     this.handle = requestAnimationFrame(this.frame);
   }
 
+  /** Forget the last frame time (after the page was hidden) so no gap is charged. */
+  resync() {
+    this.last = performance.now();
+  }
+
   stop() {
     this.running = false;
     cancelAnimationFrame(this.handle);
@@ -54,9 +59,9 @@ export class FrameLoop {
     const anim = Math.min(MAX_STEP_MS, raw);
     const real = Math.min(MAX_FRAME_CATCHUP_MS, raw);
     this.frames++;
-    const stage = this.stage;
-    stage?.tweens.update(anim);
+    this.stage?.tweens.update(anim);
     for (const cb of this.callbacks) cb(anim, real);
-    stage?.render(anim);
+    // Re-read: a callback may have swapped the stage; never draw a disposed one.
+    this.stage?.render(anim);
   };
 }

@@ -210,9 +210,13 @@ class Progress {
     return this.d.active;
   }
 
-  /** Saves (or clears) the resumable game. Written at the next commit boundary. */
+  /**
+   * Saves (or clears) the resumable game. Stores a deep copy, so later changes
+   * to the caller's run object can never be written next to an older shipment.
+   */
   setActive(a: ActivePlay | null) {
-    this.store.update((d) => (d.active = a));
+    const copy = a ? (JSON.parse(JSON.stringify(a)) as ActivePlay) : null;
+    this.store.update((d) => (d.active = copy));
   }
 
   /** Grants a reward exactly once per id; the effect and the id are written together. */

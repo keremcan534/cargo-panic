@@ -505,3 +505,37 @@ describe('restore validation', () => {
     assert.ok(r.tick(16).hazard.remaining <= GRACE_MS.balance);
   });
 });
+
+describe('nothing changes under a held package', () => {
+  test('other packages cannot be moved, and undo/hint wait, while one is held', () => {
+    const s = new GameSession(TIP, { source: { mode: 'campaign', levelId: 900 }, undoAllowance: 1 });
+    s.move(0, 0, 2);
+    s.move(1, 0, 0);
+    s.hold(0);
+    assert.deepEqual(s.move(2, 0, 4), { ok: false, rejection: 'not-movable' });
+    assert.deepEqual(s.toBelt(1), { ok: false, rejection: 'not-movable' });
+    assert.equal(s.canUndo, false);
+    assert.equal(s.undo(), false);
+    assert.equal(s.hint(), null);
+    assert.equal(s.rejectedDrops, 0);
+    s.release();
+    assert.equal(s.canUndo, true);
+  });
+
+  test('a session can start paused and revision tracks persistable changes', () => {
+    const s = new GameSession(TIP, { source: { mode: 'campaign', levelId: 900 }, startPaused: true });
+    assert.equal(s.phase, 'paused');
+    assert.equal(s.tick(1000).hazard.kind, null);
+    assert.equal(s.activeMs, 0);
+    const r0 = s.revision;
+    s.resume();
+    s.move(0, 0, 2);
+    s.hold(1);
+    s.release();
+    s.move(1, 0, 9); // refused: no revision
+    const r1 = s.revision;
+    assert.equal(r1, r0 + 2, 'resume + one committed move');
+    s.hint();
+    assert.equal(s.revision, r1 + 1, 'a counted hint must be saved');
+  });
+});
