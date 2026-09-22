@@ -21,6 +21,7 @@ import { CRUSH_WEIGHT, W3 } from '../../game/config';
 import { PACKAGE_SPECS } from '../../game/levels/types';
 import type { LevelDef, PackageType } from '../../game/levels/types';
 import type { TargetKind } from '../../game/session/types';
+import { HINT_MS } from '../GameView';
 import type {
   BoardView,
   ClientPoint,
@@ -58,8 +59,6 @@ const DEG = Math.PI / 180;
 /** Conveyor3D belt speeds, world units per second. */
 const BELT_SPEED = 0.35;
 const BELT_SPEED_DRAG = 0.08;
-/** How long a hint stays up (the old controller's timer). */
-const HINT_MS = 4200;
 /** Visual lift of a tap-selected package. */
 const SELECT_LIFT = 0.12;
 

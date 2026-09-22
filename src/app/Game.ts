@@ -109,7 +109,6 @@ class GameController implements Screen {
   private creakAccum = 0;
   private beepAccum = 0;
   private beepStep = 0;
-  private hintTimer = 0;
   private tip?: TipCard;
   private waveCard?: WaveClearCard;
   private advancing = false;
@@ -227,7 +226,6 @@ class GameController implements Screen {
     this.interaction.detach();
     this.offAdvanceTap?.();
     for (const t of this.timers) clearTimeout(t);
-    clearTimeout(this.hintTimer);
     this.tip?.dismiss();
     this.waveCard?.dismiss();
     this.view.dispose();
@@ -396,14 +394,12 @@ class GameController implements Screen {
       this.hud.toast('NO SOLUTION FROM HERE - TAP RESTART', 'info');
       return;
     }
-    this.clearHint();
+    // The view clears it after HINT_MS or when a drag begins (GameView.showHint).
     this.view.showHint(current, { shelf: hint.shelf, slot: hint.slot });
     if (hint.kind === 'rearrange') this.hud.toast('SOME STOWED CARGO NEEDS MOVING TOO', 'info');
-    this.hintTimer = window.setTimeout(() => this.clearHint(), 4200);
   }
 
   private clearHint() {
-    clearTimeout(this.hintTimer);
     this.view.clearHint();
   }
 
