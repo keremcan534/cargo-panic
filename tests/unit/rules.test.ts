@@ -11,6 +11,7 @@ import type { ShipmentOutcome } from '../../src/game/session';
 
 const outcome = (over: Partial<ShipmentOutcome> = {}): ShipmentOutcome => ({
   result: 'won',
+  source: { mode: 'campaign', levelId: 3 },
   ruleset: RULESET_VERSION,
   placements: [],
   imbalance: 0,

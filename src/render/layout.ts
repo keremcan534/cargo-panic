@@ -18,11 +18,11 @@ export const FRAME_BAND = {
 } as const;
 
 /**
- * Bottom fraction of the screen the 3D view treats as "drop it back on the
- * belt". 3D only: the 2D view decides the belt in its own projection (below
- * the rack floor), because this fraction lands on the bottom shelf of several
- * 2D rack shapes. The controller asks the view (dragTarget / targetAt), never
- * this constant.
+ * Bottom fraction of the screen the 3D view treats as its belt area. 3D only:
+ * the 2D view uses its own projection (see layout2d dragTargetFromLocal /
+ * tapTargetFromLocal). In both views a drag resolves to a slot first and to
+ * the belt only when the dragged package is over no slot. The controller asks
+ * the view (dragTarget / targetAt), never this constant.
  */
 export const BELT_ZONE_3D = 0.76;
 

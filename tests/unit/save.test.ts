@@ -245,3 +245,63 @@ describe('rewards and write coalescing', () => {
     assert.equal(r.data.settings.sound, false);
   });
 });
+
+describe('active play consistency', () => {
+  const shipment = (source: object) => ({
+    v: 1,
+    ruleset: 2,
+    generator: 1,
+    source,
+    levelFingerprint: 'x',
+    graceScale: 1,
+    phase: 'paused',
+    placements: [],
+    queue: [0],
+    hazards: { balance: 3000, overload: [], fragile: [] },
+    winSettleMs: 0,
+    activeMs: 0,
+    dangerMs: 0,
+    assists: { hints: 0, undos: 0 },
+    rejectedDrops: 0,
+    undoLeft: 1,
+    undo: null,
+    outcome: null,
+  });
+  const run = { runId: 'r1', seed: 42, wave: 3, score: 900, stowed: 12, cleanWaves: 1, assisted: false, rewardedThrough: 2 };
+
+  test('an Endless run and shipment that describe different waves are dropped, loudly', () => {
+    const mem = new MemoryStore();
+    const { s } = open(mem);
+    s.update((d) => {
+      (d as unknown as { active: unknown }).active = {
+        kind: 'endless',
+        rulesetVersion: 2,
+        generatorVersion: 1,
+        run: { ...run, wave: 4, rewardedThrough: 3 },
+        shipment: shipment({ mode: 'endless', runId: 'r1', seed: 42, wave: 3 }),
+      };
+    });
+    s.flush();
+    const { s: r, notices } = open(mem);
+    assert.deepEqual(notices, ['active-dropped']);
+    assert.equal(r.data.active, null);
+  });
+
+  test('a matching run and shipment survive a reload', () => {
+    const mem = new MemoryStore();
+    const { s } = open(mem);
+    s.update((d) => {
+      (d as unknown as { active: unknown }).active = {
+        kind: 'endless',
+        rulesetVersion: 2,
+        generatorVersion: 1,
+        run,
+        shipment: shipment({ mode: 'endless', runId: 'r1', seed: 42, wave: 3 }),
+      };
+    });
+    s.flush();
+    const { s: r, notices } = open(mem);
+    assert.deepEqual(notices, []);
+    assert.equal(r.data.active?.kind, 'endless');
+  });
+});

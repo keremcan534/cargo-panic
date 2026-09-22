@@ -11,7 +11,7 @@ import type { HazardKind, HazardSnapshot, HazardState } from '../systems/HazardS
 /** Where a shipment's rack and manifest came from. Enough to rebuild the level. */
 export type ShipmentSource =
   | { mode: 'campaign'; levelId: number }
-  | { mode: 'endless'; seed: number; wave: number };
+  | { mode: 'endless'; runId: string; seed: number; wave: number };
 
 /**
  * `play`   - clocks run, commands are accepted.
@@ -48,6 +48,8 @@ export type FailureFacts =
 
 export interface ShipmentOutcome {
   result: 'won' | 'failed';
+  /** The shipment this outcome belongs to - a reward is only ever paid to that run and wave. */
+  source: ShipmentSource;
   /** Ruleset the shipment was played and judged under. */
   ruleset: number;
   /** Final committed board. */

@@ -11,10 +11,12 @@ import { LEVELS } from '../../src/game/levels/levels';
 import {
   BELT_2D,
   cargoCentreY,
+  dragTargetFromLocal,
   fromRackLocal,
   layout2d,
   nearestShelf,
   slotCentreX,
+  tapTargetFromLocal,
   targetFromLocal,
   tiltFor,
   toRackLocal,
@@ -126,5 +128,34 @@ describe('layout', () => {
     const L = layout2d(390, 844, 3, 7);
     const p = toWorld(L, ...(Object.values(toScreen(L, 1.25, 2.5)) as [number, number]));
     assert.ok(Math.abs(p.x - 1.25) < 1e-9 && Math.abs(p.y - 2.5) < 1e-9);
+  });
+});
+
+describe('belt vs slot precedence', () => {
+  test('a lifted package over any bottom-shelf slot resolves to that slot, never the belt', () => {
+    for (const level of LEVELS) {
+      const shelf = level.shelves[0];
+      for (const width of [1, 3]) {
+        for (let slot = 0; slot + width <= shelf.slots; slot++) {
+          const centre = { x: slotCentreX(shelf.slots, slot, width), y: cargoCentreY(0) };
+          const t = dragTargetFromLocal(level, centre, centre, width);
+          assert.deepEqual(t, { kind: 'slot', shelf: 0, slot }, `L${level.id} s${slot} w${width}`);
+        }
+      }
+    }
+  });
+
+  test('a package dragged down over the belt resolves to the belt', () => {
+    const level = LEVELS[6];
+    const onBelt = { x: -1, y: BELT_2D.topY + W3.cargoH / 2 };
+    assert.deepEqual(dragTargetFromLocal(level, onBelt, onBelt, 1), { kind: 'belt' });
+  });
+
+  test('a tap on the belt band is the belt; a tap on a shelf is the slot', () => {
+    const level = LEVELS[6];
+    const belt = { x: 0, y: -0.4 };
+    assert.deepEqual(tapTargetFromLocal(level, belt, belt, 1), { kind: 'belt' });
+    const onShelf = { x: slotCentreX(level.shelves[0].slots, 2, 1), y: cargoCentreY(0) };
+    assert.deepEqual(tapTargetFromLocal(level, onShelf, onShelf, 1), { kind: 'slot', shelf: 0, slot: 2 });
   });
 });

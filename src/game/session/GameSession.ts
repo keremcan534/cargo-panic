@@ -51,6 +51,8 @@ export interface SessionOptions {
   graceScale?: number;
   /** Free one-step undos for this shipment. */
   undoAllowance?: number;
+  /** Create the session paused (e.g. the next wave is dealt while the app is hidden). */
+  startPaused?: boolean;
 }
 
 export type RestoreErrorCode = 'level-changed' | 'corrupt' | 'unsupported';
@@ -100,6 +102,7 @@ export class GameSession {
   private undoLeftValue: number;
   private undoFrame: UndoFrame | null = null;
   private outcomeValue: ShipmentOutcome | null = null;
+  private rev = 0;
 
   constructor(level: LevelDef, opts: SessionOptions) {
     this.level = level;
@@ -111,6 +114,7 @@ export class GameSession {
     this.queueIds = level.packages.map((_, i) => i);
     this.evalCache = freezeEval(this.board.evaluate());
     this.lastHazard = this.hazards.peek(this.evalCache);
+    if (opts.startPaused) this.phaseValue = 'paused';
   }
 
   // ==========================================================================
@@ -119,6 +123,15 @@ export class GameSession {
 
   get phase(): SessionPhase {
     return this.phaseValue;
+  }
+
+  /**
+   * Bumped by every change worth persisting: a committed move, undo, a
+   * counted hint, pause/resume and the end of the shipment. A save layer
+   * writes when this differs from what it last wrote.
+   */
+  get revision(): number {
+    return this.rev;
   }
 
   /** Belt order; index 0 is the live package. A frozen copy. */
@@ -178,7 +191,7 @@ export class GameSession {
   }
 
   get canUndo(): boolean {
-    return this.phaseValue === 'play' && this.undoLeftValue > 0 && this.undoFrame !== null;
+    return this.phaseValue === 'play' && this.heldId === null && this.undoLeftValue > 0 && this.undoFrame !== null;
   }
 
   get outcome(): ShipmentOutcome | null {
@@ -265,6 +278,8 @@ export class GameSession {
   move(id: number, shelf: number, slot: number): MoveResult {
     if (this.phaseValue !== 'play') return { ok: false, rejection: 'not-playing' };
     if (!this.isMovable(id)) return { ok: false, rejection: 'not-movable' };
+    // While one package is in hand nothing else may change under it.
+    if (this.heldId !== null && this.heldId !== id) return { ok: false, rejection: 'not-movable' };
     const from = this.locationOf(id) as CargoLocation;
     this.release(id);
 
@@ -284,6 +299,7 @@ export class GameSession {
     if (from.at === 'belt') this.queueIds.shift();
     this.board.place(id, type, shelf, slot);
     this.afterChange();
+    this.rev++;
     return { ok: true, changed: true, from };
   }
 
@@ -292,6 +308,7 @@ export class GameSession {
     if (this.phaseValue !== 'play') return { ok: false, rejection: 'not-playing' };
     const from = this.locationOf(id);
     if (!from) return { ok: false, rejection: 'not-movable' };
+    if (this.heldId !== null && this.heldId !== id) return { ok: false, rejection: 'not-movable' };
     if (from.at === 'belt') {
       if (from.index !== 0) return { ok: false, rejection: 'not-movable' };
       this.release(id);
@@ -302,6 +319,7 @@ export class GameSession {
     this.board.remove(id);
     this.queueIds.unshift(id);
     this.afterChange();
+    this.rev++;
     return { ok: true, changed: true, from };
   }
 
@@ -330,6 +348,7 @@ export class GameSession {
     this.winSettleMs = 0;
     this.evalCache = freezeEval(this.board.evaluate());
     this.lastHazard = this.hazards.peek(this.evalCache);
+    this.rev++;
     return true;
   }
 
@@ -339,9 +358,12 @@ export class GameSession {
    */
   hint(): Hint | null {
     const current = this.current;
-    if (this.phaseValue !== 'play' || current === null) return null;
+    if (this.phaseValue !== 'play' || current === null || this.heldId !== null) return null;
     const hint = hintFor(this.level, this.board.list, [...this.queueIds], current);
-    if (hint.kind !== 'stuck') this.assistsValue.hints++;
+    if (hint.kind !== 'stuck') {
+      this.assistsValue.hints++;
+      this.rev++;
+    }
     return hint;
   }
 
@@ -349,12 +371,14 @@ export class GameSession {
     if (this.phaseValue !== 'play') return false;
     this.phaseValue = 'paused';
     this.heldId = null;
+    this.rev++;
     return true;
   }
 
   resume(): boolean {
     if (this.phaseValue !== 'paused') return false;
     this.phaseValue = 'play';
+    this.rev++;
     return true;
   }
 
@@ -518,10 +542,12 @@ export class GameSession {
 
   private finish(result: 'won' | 'failed', failure?: FailureFacts): ShipmentOutcome {
     this.phaseValue = result;
+    this.rev++;
     this.heldId = null;
     this.undoFrame = null;
     const outcome: ShipmentOutcome = {
       result,
+      source: { ...this.source },
       ruleset: RULESET_VERSION,
       placements: this.board.list.map((p) => ({ ...p })),
       imbalance: this.evalCache.imbalance,
@@ -625,6 +651,8 @@ function isConsistent(level: LevelDef, snap: ShipmentSnapshot): boolean {
   if (!snap.assists || !isCount(snap.assists.hints) || !isCount(snap.assists.undos)) return false;
   if (!isCount(snap.rejectedDrops) || !isCount(snap.undoLeft)) return false;
   if (!snap.source || (snap.source.mode !== 'campaign' && snap.source.mode !== 'endless')) return false;
+  if (snap.source.mode === 'endless' && typeof snap.source.runId !== 'string') return false;
+  if (snap.outcome && JSON.stringify(snap.outcome.source) !== JSON.stringify(snap.source)) return false;
   if (!validBoard(level, snap.placements, snap.queue)) return false;
   if (!validHazards(level, snap.hazards)) return false;
   if (snap.undo !== null && snap.undo !== undefined) {
