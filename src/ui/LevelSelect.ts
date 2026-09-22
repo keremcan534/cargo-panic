@@ -9,7 +9,7 @@ import { LEVELS, TOTAL_LEVELS } from '../game/levels/levels';
 import { audio } from '../game/systems/AudioManager';
 import { haptics } from '../game/systems/Haptics';
 import { progress } from '../game/systems/ProgressManager';
-import type { Backdrop } from '../render/Stage';
+import type { Backdrop, Stage } from '../render/Stage';
 import { menuScreen } from './Menu';
 import { STAR_SVG, btn, el, fadeIn, fadeOut, iconBtn, uiRoot } from './dom';
 
@@ -82,6 +82,13 @@ export function levelSelectScreen(ctx: AppContext): Screen {
       backdrop?.dispose();
       backdrop = undefined;
       root.remove();
+    },
+    detachStage() {
+      backdrop?.dispose();
+      backdrop = undefined;
+    },
+    attachStage(stage: Stage) {
+      backdrop = stage.showBackdrop('levels');
     },
   };
 }

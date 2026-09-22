@@ -52,6 +52,10 @@ interface AppProbe {
   readonly frames: number;
   readonly loopSubscribers: number;
   readonly canvases: number;
+  /** The live stage has been slow even at its lowest quality (3D only). */
+  readonly struggling: boolean;
+  /** 3D quality in force, or null in 2D. */
+  readonly quality: ThreeStage['quality'] | null;
 }
 
 declare global {
@@ -102,6 +106,13 @@ async function boot() {
       },
       get canvases() {
         return document.querySelectorAll('canvas').length;
+      },
+      get struggling() {
+        return host.stageOrNull?.struggling ?? false;
+      },
+      get quality() {
+        const stage = host.stageOrNull;
+        return stage?.mode === '3d' ? (stage as ThreeStage).quality : null;
       },
     });
     // GPU resource counts, to catch leaks across screens (3D only; 2D reports the mode and frames).

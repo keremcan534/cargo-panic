@@ -237,13 +237,16 @@ describe('StageHost', () => {
     const { create, gates } = gatedCreator(root);
     const host = new StageHost(loop, asRoot(root), () => OPTS, create);
     const booting = host.boot('2d');
+    await tick();
     gates[0].open();
     await booting;
 
     const events: string[] = [];
     host.onEvent((e) => events.push(e.type === 'busy' ? `busy:${e.busy}` : e.type));
     const a = host.switchTo('3d');
-    assert.equal(host.busy, true);
+    assert.equal(host.busy, true, 'busy from the moment of the request');
+    assert.deepEqual(events, ['busy:true']);
+    await tick();
     assert.equal(loop.stage, null, 'nothing is drawn while the new stage is being made');
     const b = host.switchTo('2d'); // arrives while 3D is still loading
     const c = host.switchTo('3d');

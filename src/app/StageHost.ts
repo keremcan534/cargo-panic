@@ -133,11 +133,14 @@ export class StageHost {
     this.generationValue++;
     this.request = mode;
     if (!this.running) {
-      const run = this.drain().finally(() => {
-        this.running = null;
-        this.emit({ type: 'busy', busy: false });
-      });
-      this.running = run;
+      // Busy from this moment (listeners disable their controls now); the
+      // swap itself starts a microtask later.
+      this.running = Promise.resolve()
+        .then(() => this.drain())
+        .finally(() => {
+          this.running = null;
+          this.emit({ type: 'busy', busy: false });
+        });
       this.emit({ type: 'busy', busy: true });
     }
     return this.running;
