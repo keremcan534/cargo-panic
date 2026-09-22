@@ -247,6 +247,39 @@ test('2d: a second finger cannot steal, aim or drop the package the first finger
     { id: 0, type: 'heavy', shelf: 0, slot: 2 },
     { id: 1, type: 'heavy', shelf: 0, slot: 1 },
   ]);
+  await frames(page, 20);
+
+  // Tap-select the last box; finger 1 aims it at slot 3 and stays down. Finger 2 lands on the empty
+  // slot 4 and lifts there: it must neither take over the aim nor drop the box (only the one-pointer
+  // rule stops that - the session would accept a move to slot 4).
+  await expect
+    .poll(
+      async () => {
+        const box = await pointOf(page, { cargo: 2 });
+        await touch(cdp, 'touchStart', [{ ...box, id: 1 }]);
+        await touch(cdp, 'touchEnd', []);
+        return selection(page);
+      },
+      { timeout: 60_000 },
+    )
+    .toBe(2);
+  const slot3 = await pointOf(page, { shelf: 0, slot: 3, slots: 1 });
+  await touch(cdp, 'touchStart', [{ ...slot3, id: 1 }]);
+  await expect.poll(() => aimed(page)).toEqual({ kind: 'slot', shelf: 0, slot: 3 });
+  await touch(cdp, 'touchStart', [{ ...slot3, id: 1 }, { ...slot4, id: 2 }]);
+  await frames(page, 3);
+  await touch(cdp, 'touchMove', [{ ...slot3, id: 1 }]); // finger 2 lifts over slot 4
+  await frames(page, 3);
+  expect((await placements(page)).length).toBe(2);
+  expect(await aimed(page)).toEqual({ kind: 'slot', shelf: 0, slot: 3 });
+  expect(await selection(page)).toBe(2);
+  await touch(cdp, 'touchEnd', []);
+  await expect.poll(async () => (await placements(page)).find((p) => p.id === 2)).toEqual({
+    id: 2,
+    type: 'standard',
+    shelf: 0,
+    slot: 3,
+  });
   expect(errors).toEqual([]);
   await context.close();
 });

@@ -72,17 +72,20 @@ export class Cargo3D {
     this.body.receiveShadow = true;
     this.body.userData.cargoId = id;
 
+    // Drawn with no depth test just before the (transparent) box, which then
+    // covers its middle: what shows is a full outline around the silhouette.
     this.rimMat = new THREE.MeshBasicMaterial({
       color: RIM_SELECT,
       side: THREE.BackSide,
       transparent: true,
       opacity: 0.95,
+      depthTest: false,
       depthWrite: false,
     });
-    const pad = 0.09;
+    const pad = 0.08;
     this.rim = new THREE.Mesh(new THREE.BoxGeometry(this.width + pad * 2, W3.cargoH + pad * 2, W3.cargoD + pad), this.rimMat);
     this.rim.visible = false;
-    this.rim.renderOrder = 8;
+    this.rim.renderOrder = -1;
     this.body.add(this.rim);
 
     this.mesh = new THREE.Group();
