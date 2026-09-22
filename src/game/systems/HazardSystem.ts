@@ -37,14 +37,14 @@ export interface HazardSnapshot {
   fragile: [number, number][];
 }
 
-const CLEAR: HazardState = {
+const CLEAR: HazardState = Object.freeze({
   kind: null,
   remaining: 0,
   total: 1,
   owner: -1,
   urgency: 0,
   expired: false,
-};
+});
 
 export class HazardSystem {
   private readonly grace: { balance: number; overload: number; fragile: number };
@@ -83,10 +83,25 @@ export class HazardSystem {
     };
   }
 
+  /** Restores clocks, never granting more than a full grace period. */
   restore(s: HazardSnapshot) {
     this.balance = Math.min(this.grace.balance, s.balance);
-    this.overload = new Map(s.overload);
-    this.fragile = new Map(s.fragile);
+    this.overload = new Map(s.overload.map(([k, v]) => [k, Math.min(this.grace.overload, v)]));
+    this.fragile = new Map(s.fragile.map(([k, v]) => [k, Math.min(this.grace.fragile, v)]));
+  }
+
+  /**
+   * The state update(ev, 0) would report, without touching any clock. Used to
+   * show the right countdown while paused, after a restore and after undo.
+   */
+  peek(ev: BoardEval): HazardState {
+    const overload: [number, number][] = [];
+    for (const [t, left] of this.overload) if (ev.overloaded.includes(t)) overload.push([t, left]);
+    for (const t of ev.overloaded) if (!this.overload.has(t)) overload.push([t, this.grace.overload]);
+    const fragile: [number, number][] = [];
+    for (const [id, left] of this.fragile) if (ev.crushed.includes(id)) fragile.push([id, left]);
+    for (const id of ev.crushed) if (!this.fragile.has(id)) fragile.push([id, this.grace.fragile]);
+    return this.select(ev.status === 'danger', this.balance, overload, fragile);
   }
 
   /** Advances every clock and reports the one closest to failing. */
@@ -115,17 +130,26 @@ export class HazardSystem {
       this.fragile.set(id, (this.fragile.get(id) ?? this.grace.fragile) - deltaMs);
     }
 
+    return this.select(ev.status === 'danger', this.balance, this.overload, this.fragile);
+  }
+
+  private select(
+    balanceDanger: boolean,
+    balance: number,
+    overload: Iterable<[number, number]>,
+    fragile: Iterable<[number, number]>,
+  ): HazardState {
     let kind: HazardKind | null = null;
     let remaining = Infinity;
     let total = 1;
     let owner = -1;
 
-    if (ev.status === 'danger') {
+    if (balanceDanger) {
       kind = 'balance';
-      remaining = this.balance;
+      remaining = balance;
       total = this.grace.balance;
     }
-    for (const [tier, left] of this.overload) {
+    for (const [tier, left] of overload) {
       if (left < remaining) {
         kind = 'overload';
         remaining = left;
@@ -133,7 +157,7 @@ export class HazardSystem {
         owner = tier;
       }
     }
-    for (const [id, left] of this.fragile) {
+    for (const [id, left] of fragile) {
       if (left < remaining) {
         kind = 'fragile';
         remaining = left;
@@ -152,5 +176,10 @@ export class HazardSystem {
       urgency: Math.min(1, Math.max(0, 1 - remaining / total)),
       expired: remaining <= 0,
     };
+  }
+
+  /** Full grace durations, for validating restored clocks. */
+  get graceMs(): Readonly<{ balance: number; overload: number; fragile: number }> {
+    return this.grace;
   }
 }

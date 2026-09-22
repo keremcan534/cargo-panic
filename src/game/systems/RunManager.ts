@@ -10,17 +10,30 @@
 import { randomSeed } from './Rng';
 
 export interface RunState {
+  /**
+   * Unique per run, including a same-seed retry. Reward ids are built from it,
+   * so a replay of the same shift never looks like a resume of the old one.
+   */
+  runId: string;
   seed: number;
   wave: number;
   score: number;
   /** Packages stowed across the whole run, for the results screen. */
   stowed: number;
-  /** Waves cleared without a single rejected drop. */
+  /** Waves cleared "clean" under the current ruleset (see session/rules.ts). */
   cleanWaves: number;
+  /** Any hint or undo was used in this run. Never cleared. */
+  assisted: boolean;
+  /** Highest wave whose reward has been applied; a wave is rewarded once. */
+  rewardedThrough: number;
 }
 
-export function newRun(seed = randomSeed()): RunState {
-  return { seed, wave: 1, score: 0, stowed: 0, cleanWaves: 0 };
+export function makeRunId(): string {
+  return `${Date.now().toString(36)}-${Math.floor(Math.random() * 0x7fffffff).toString(36)}`;
+}
+
+export function newRun(seed = randomSeed(), runId = makeRunId()): RunState {
+  return { runId, seed, wave: 1, score: 0, stowed: 0, cleanWaves: 0, assisted: false, rewardedThrough: 0 };
 }
 
 /**

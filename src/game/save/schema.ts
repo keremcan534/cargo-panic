@@ -6,6 +6,7 @@
  */
 
 import type { ShipmentSnapshot } from '../session/types';
+import type { RunState } from '../systems/RunManager';
 
 export const SAVE_VERSION = 2;
 
@@ -46,18 +47,8 @@ export interface TutorialState {
   seenCargo: string[];
 }
 
-/** An Endless run that can be resumed. */
-export interface SavedRun {
-  runId: string;
-  seed: number;
-  /** Wave being played (or about to start). */
-  wave: number;
-  score: number;
-  stowed: number;
-  cleanWaves: number;
-  /** True once any hint, undo or rescue was used in this run. Never cleared. */
-  assisted: boolean;
-}
+/** An Endless run that can be resumed (same shape as RunManager.RunState). */
+export type SavedRun = RunState;
 
 export type ActivePlay =
   | {
@@ -164,14 +155,16 @@ const strList = (v: unknown, limit: number): string[] =>
 
 function sanitizeRun(raw: unknown): SavedRun | null {
   if (!isObj(raw) || typeof raw.runId !== 'string' || !num(raw.seed) || !num(raw.wave)) return null;
+  const wave = int(raw.wave, 1, 1_000_000, 1);
   return {
     runId: raw.runId,
     seed: raw.seed >>> 0,
-    wave: int(raw.wave, 1, 1_000_000, 1),
+    wave,
     score: int(raw.score, 0, Number.MAX_SAFE_INTEGER, 0),
     stowed: int(raw.stowed, 0, Number.MAX_SAFE_INTEGER, 0),
     cleanWaves: int(raw.cleanWaves, 0, Number.MAX_SAFE_INTEGER, 0),
     assisted: raw.assisted === true,
+    rewardedThrough: int(raw.rewardedThrough, 0, wave, 0),
   };
 }
 

@@ -128,8 +128,11 @@ describe('holding is not a board change', () => {
     assert.equal(s.hold(0), true);
     assert.equal(s.held, 0);
     assert.equal(JSON.stringify([s.placements, s.queue, s.evaluation]), before);
-    assert.equal(s.hold(1), true);
+    assert.equal(s.hold(1), false, 'only one package can be in hand');
+    assert.equal(s.held, 0);
     assert.equal(JSON.stringify([s.placements, s.queue, s.evaluation]), before);
+    s.release(1);
+    assert.equal(s.held, 0, 'releasing another id does not drop the held package');
     s.release();
     assert.equal(s.held, null);
   });
@@ -325,5 +328,180 @@ describe('hint', () => {
     assert.ok(h && h.kind !== 'stuck');
     assert.equal(s.assists.hints, 1);
     assert.equal(s.placements.length, 0, 'a hint never moves cargo');
+  });
+});
+
+describe('review hardening', () => {
+  const heldBoard = () => {
+    const s = campaign(TIP);
+    s.move(0, 0, 2);
+    s.move(1, 0, 0);
+    s.move(2, 0, 4);
+    return s;
+  };
+
+  test('a second pointer cannot clear the held package and let the board settle', () => {
+    const s = heldBoard();
+    s.hold(0);
+    assert.equal(s.hold(1), false);
+    s.release(1);
+    tickFor(s, WIN_SETTLE_MS * 3);
+    assert.equal(s.phase, 'play');
+  });
+
+  test('toBelt refuses a belt package that is not live', () => {
+    const s = campaign(TIP);
+    assert.deepEqual(s.toBelt(2), { ok: false, rejection: 'not-movable' });
+  });
+
+  test('NaN and fractional targets are refused and not charged as refused drops', () => {
+    const s = campaign(TIP);
+    assert.equal(s.move(0, 0, Number.NaN).ok, false);
+    assert.equal(s.move(0, 0, 1.5).ok, false);
+    assert.equal(s.preview(0, 0, Number.NaN).kind, 'bad');
+    assert.equal(s.rejectedDrops, 0);
+    assert.equal(s.placements.length, 0);
+  });
+
+  test('getters hand out copies or frozen data', () => {
+    const s = campaign(TIP);
+    s.move(0, 0, 2);
+    const snap = JSON.stringify(s.snapshot());
+    assert.throws(() => {
+      (s.placements[0] as { slot: number }).slot = 4;
+    });
+    assert.throws(() => {
+      (s.queue as number[]).length = 0;
+    });
+    assert.throws(() => {
+      (s.evaluation as { net: number }).net = 99;
+    });
+    assert.throws(() => {
+      (s.tick(16).hazard as { kind: string | null }).kind = 'balance';
+    });
+    s.pause();
+    const again = JSON.parse(JSON.stringify(s.snapshot()));
+    again.phase = 'play';
+    const before = JSON.parse(snap);
+    assert.deepEqual(again.placements, before.placements);
+    assert.deepEqual(again.queue, before.queue);
+  });
+
+  test('preview does not flag a neutral move as crushing while another crate is already crushed', () => {
+    const crush: LevelDef = { ...LOAD, packages: ['heavy', 'fragile', 'standard'], shelves: [{ slots: 5, maxWeight: 20 }, { slots: 5, maxWeight: 20 }] };
+    const s = campaign(crush);
+    s.move(0, 1, 2);
+    s.move(1, 0, 2);
+    assert.deepEqual(s.evaluation.crushed, [1]);
+    assert.equal(s.preview(2, 0, 0).kind, 'ok');
+    assert.equal(s.preview(2, 0, 0).willCrush, false);
+  });
+
+  test('the hazard read-out survives pause, restore and undo', () => {
+    const s = new GameSession(TIP, { source: { mode: 'campaign', levelId: 900 }, undoAllowance: 1 });
+    s.move(0, 0, 4);
+    tickFor(s, 400);
+    const left = s.hazard.remaining;
+    assert.equal(s.hazard.kind, 'balance');
+    s.pause();
+    const paused = s.tick(16);
+    assert.equal(paused.hazard.kind, 'balance', 'paused shows the frozen countdown');
+    assert.equal(paused.hazard.remaining, left);
+    const r = GameSession.restore(TIP, s.snapshot());
+    assert.equal(r.hazard.kind, 'balance');
+    assert.equal(r.hazard.remaining, left);
+    s.resume();
+    s.move(0, 0, 2);
+    assert.equal(s.hazard.kind, null, 'a fixing move clears the read-out immediately');
+  });
+
+  test('undo does not refund a danger that ran across the undone command', () => {
+    const s = new GameSession(TIP, { source: { mode: 'campaign', levelId: 900 }, undoAllowance: 1 });
+    s.move(0, 0, 4); // red
+    tickFor(s, 400);
+    s.move(1, 0, 3); // still red (harmless move)
+    tickFor(s, 600);
+    const late = s.hazard.remaining;
+    s.undo();
+    assert.equal(s.hazard.kind, 'balance');
+    assert.ok(s.hazard.remaining <= late + 1e-9, `undo refunded ${s.hazard.remaining - late} ms`);
+  });
+
+  test('a single call never charges more than one step; advance sub-steps real time', () => {
+    const a = campaign(TIP);
+    a.move(0, 0, 4);
+    a.tick(Number.POSITIVE_INFINITY);
+    a.tick(1e6);
+    assert.equal(a.activeMs, 50);
+    const b = campaign(TIP);
+    const c = campaign(TIP);
+    b.move(0, 0, 4);
+    c.move(0, 0, 4);
+    for (let i = 0; i < 10; i++) b.advance(100); // 10 fps
+    for (let i = 0; i < 60; i++) c.tick(1000 / 60);
+    assert.ok(Math.abs(b.activeMs - 1000) < 1e-6);
+    assert.ok(Math.abs(b.hazard.remaining - c.hazard.remaining) < 1e-6, 'slow frames buy no time');
+    const d = campaign(TIP);
+    d.advance(60_000);
+    assert.equal(d.activeMs, 250, 'stalls are capped, not charged');
+  });
+});
+
+describe('restore validation', () => {
+  const base = () => {
+    const s = new GameSession(TIP, { source: { mode: 'campaign', levelId: 900 }, undoAllowance: 1 });
+    s.move(0, 0, 4);
+    s.tick(300);
+    s.move(1, 0, 0);
+    return s.snapshot();
+  };
+  const refuses = (mutate: (x: Record<string, unknown>) => void, code = 'corrupt') => {
+    const snap = JSON.parse(JSON.stringify(base()));
+    mutate(snap);
+    assert.throws(
+      () => GameSession.restore(TIP, snap),
+      (e: unknown) => e instanceof SessionRestoreError && e.code === code,
+    );
+  };
+
+  test('only SessionRestoreError ever escapes', () => {
+    refuses((x) => delete x.queue);
+    refuses((x) => (x.hazards = null));
+    refuses((x) => ((x.hazards as { overload: unknown }).overload = 'xx'));
+    refuses((x) => (x.placements = null));
+    refuses((x) => ((x.undo as { hazards: unknown }).hazards = null));
+  });
+
+  test('refuses states that would soft-lock or cheat the shipment', () => {
+    refuses((x) => (x.phase = 'resolving'));
+    refuses((x) => (x.phase = 'won'));
+    refuses((x) => (x.assists = { hints: Number.NaN, undos: 0 }));
+    refuses((x) => delete x.assists);
+    refuses((x) => (x.graceScale = 'x'));
+    refuses((x) => (x.undoLeft = -1));
+    refuses((x) => (x.activeMs = null));
+    refuses((x) => ((x.placements as { slot: unknown }[])[0].slot = null));
+    refuses((x) => ((x.undo as { placements: unknown[]; queue: unknown[] }).queue = [2, 2]));
+    refuses((x) => {
+      const u = x.undo as { placements: { id: number; type: string; shelf: number; slot: number }[]; queue: number[] };
+      u.placements = [
+        { id: 0, type: 'heavy', shelf: 0, slot: 4 },
+        { id: 0, type: 'heavy', shelf: 0, slot: 1 },
+      ];
+      u.queue = [2];
+    });
+  });
+
+  test('refuses another snapshot format, ruleset or generator', () => {
+    refuses((x) => (x.v = 2), 'unsupported');
+    refuses((x) => (x.ruleset = 999), 'unsupported');
+  });
+
+  test('clamps restored clocks to a full grace period', () => {
+    const snap = JSON.parse(JSON.stringify(base()));
+    snap.hazards.balance = 1e9;
+    const r = GameSession.restore(TIP, snap);
+    r.resume();
+    assert.ok(r.tick(16).hazard.remaining <= GRACE_MS.balance);
   });
 });

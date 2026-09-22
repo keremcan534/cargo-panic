@@ -48,6 +48,8 @@ export type FailureFacts =
 
 export interface ShipmentOutcome {
   result: 'won' | 'failed';
+  /** Ruleset the shipment was played and judged under. */
+  ruleset: number;
   /** Final committed board. */
   placements: Placement[];
   imbalance: number;
@@ -65,6 +67,9 @@ export interface ShipmentOutcome {
 /** Everything needed to resume a shipment exactly. JSON-safe. */
 export interface ShipmentSnapshot {
   v: 1;
+  /** Ruleset and generator the shipment was played under; restore refuses a mismatch. */
+  ruleset: number;
+  generator: number;
   source: ShipmentSource;
   /** Guards against resuming onto a level whose data has since changed. */
   levelFingerprint: string;

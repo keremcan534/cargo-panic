@@ -152,6 +152,9 @@ export function checkPlacement(
   slot: number,
   ignoreId = -1,
 ): PlaceRejection | null {
+  // Targets are whole slots; NaN or fractional input (e.g. a hit-test on a
+  // zero-sized canvas) is never a legal place.
+  if (!Number.isInteger(shelfIndex) || !Number.isInteger(slot)) return 'out-of-bounds';
   const shelf = level.shelves[shelfIndex];
   if (!shelf) return 'out-of-bounds';
   if (shelf.locked) return 'locked';
