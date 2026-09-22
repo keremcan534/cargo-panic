@@ -14,20 +14,13 @@
 
 import { PerspectiveCamera, Vector3 } from 'three';
 import { W3 } from '../game/config';
+import { FRAME_BAND, rackHalfWidth, rackTopY } from './layout';
+
+export { FRAME_BAND, rackHalfWidth, rackTopY };
 
 export const CAMERA_FOV = 40;
 /** Downward pitch of the camera in degrees. Enough to separate the belt from the rack; shallow enough to keep front labels readable. */
 export const CAMERA_PITCH_DEG = 22;
-
-/** Screen fractions (from the top) the rack-and-belt block must stay inside. */
-export const FRAME_BAND = {
-  /** HUD, meter and banner live above this line. */
-  top: 0.31,
-  /** The belt's front edge is pinned here; the control bar sits below. */
-  bottom: 0.845,
-  /** Horizontal margin on each side as a fraction of the width. */
-  side: 0.035,
-} as const;
 
 export interface Framing {
   position: Vector3;
@@ -35,16 +28,6 @@ export interface Framing {
   /** Rack top edge in world units, handy for placing overlays. */
   rackTop: number;
   distance: number;
-}
-
-/** Half-width of the rack frame including the uprights. */
-export function rackHalfWidth(maxSlots: number): number {
-  return (maxSlots * W3.slot) / 2 + W3.frameMargin + 0.11;
-}
-
-/** Y of the top of the rack's cap beam. */
-export function rackTopY(tiers: number): number {
-  return W3.shelfBase + (tiers - 1) * W3.tier + W3.cargoH + 0.45;
 }
 
 /** Front edge of the belt, the lowest point on screen that must stay visible. */
