@@ -20,8 +20,12 @@ import { Tweens } from '../Tween';
 import { levelsBackdrop, menuBackdrop } from './backdrops';
 import { disposeTree } from './dispose';
 import { applyFraming, CAMERA_FOV } from './Framing';
-import { disposeShared } from './Materials';
+import { releaseSharedMaterials } from './Materials';
 import { Particles } from './Particles';
+import { ThreeGameView } from './ThreeGameView';
+
+/** Extra camera placement applied after the framing solve (and again on every resize). */
+export type FramingAdjust = (camera: THREE.PerspectiveCamera) => void;
 
 /** Beyond this the framebuffer costs more than the sharpness is worth. */
 const MAX_DPR = 2;
@@ -42,7 +46,7 @@ export class ThreeStage implements Stage {
   private bloom: UnrealBloomPass;
   private updaters = new Set<(dtMs: number) => void>();
 
-  private framing = { tiers: 2, maxSlots: 5 };
+  private framing: { tiers: number; maxSlots: number; adjust?: FramingAdjust } = { tiers: 2, maxSlots: 5 };
   private shakeAmp = 0;
   private shakeUntil = 0;
   private shakeSeed = 0;
@@ -116,7 +120,7 @@ export class ThreeStage implements Stage {
   // ==========================================================================
 
   createGameView(): GameView {
-    throw new Error('ThreeGameView is not wired yet');
+    return new ThreeGameView(this);
   }
 
   showBackdrop(kind: BackdropKind): Backdrop {
@@ -168,8 +172,8 @@ export class ThreeStage implements Stage {
     this.particles.dispose();
     for (const pass of this.composer.passes) pass.dispose();
     this.composer.dispose();
-    for (const child of [...this.scene.children]) disposeTree(child);
-    disposeShared();
+    for (const child of [...this.scene.children]) disposeTree(child, true);
+    releaseSharedMaterials();
     this.scene.background = null;
     this.scene.fog = null;
     this.gl.dispose();
@@ -181,10 +185,14 @@ export class ThreeStage implements Stage {
   // Helpers for the 3D view and backdrops
   // ==========================================================================
 
-  /** Re-aims the camera at a rack of this shape. Re-applied on resize. */
-  frame(tiers: number, maxSlots: number) {
-    this.framing = { tiers, maxSlots };
+  /**
+   * Re-aims the camera at a rack of this shape, then applies `adjust` (a
+   * backdrop's own offset). Both are re-applied on resize.
+   */
+  frame(tiers: number, maxSlots: number, adjust?: FramingAdjust) {
+    this.framing = { tiers, maxSlots, adjust };
     applyFraming(this.camera, this.aspect(), tiers, maxSlots);
+    adjust?.(this.camera);
     this.basePos.copy(this.camera.position);
   }
 
@@ -211,7 +219,7 @@ export class ThreeStage implements Stage {
     this.gl.setSize(w, h);
     this.composer.setSize(w, h);
     this.bloom.setSize(w, h);
-    this.frame(this.framing.tiers, this.framing.maxSlots);
+    this.frame(this.framing.tiers, this.framing.maxSlots, this.framing.adjust);
   };
 
   private applyShake(now: number) {

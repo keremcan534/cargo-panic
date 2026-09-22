@@ -1,34 +1,34 @@
 /**
- * Gameplay controller. Owns the drag loop, the hazard grace timers and the
- * win/fail transitions - a straight port of the 2D scene's state machine onto
- * the 3D world and the DOM UI.
+ * Gameplay controller. Owns the shipment's GameSession, the DOM UI (HUD,
+ * meter, panels, controls), audio and haptics, a GameView from the current
+ * stage and the pointer InteractionController.
+ *
+ * The session is the only rules state: every change is one command on it,
+ * followed by the view transition and a sync. The view only draws. This file
+ * must not import three.js or anything under src/render/three.
  *
  * Design rule enforced everywhere: nothing ever fails instantly. Imbalance,
  * overloading and crushing all raise a visible countdown first, and the player
- * can always pick cargo back up to fix it.
+ * can always pick cargo back up to fix it - but holding a package does not
+ * stop the countdown; only a committed move does.
  */
 
-import * as THREE from 'three';
 import type { AppContext, Screen } from './Router';
-import { GRACE_MS, W3, WIN_SETTLE_MS } from '../game/config';
+import { GRACE_MS } from '../game/config';
 import { getWave, prefetchWave } from '../game/levels/generator';
 import { getLevel, TOTAL_LEVELS } from '../game/levels/levels';
 import { PACKAGE_SPECS } from '../game/levels/types';
 import type { LevelDef } from '../game/levels/types';
-import { rejectionMessage } from '../game/systems/BalanceSystem';
-import type { BoardEval } from '../game/systems/BalanceSystem';
+import { campaignStars, GameSession, nextWave, rewardWave, waveSource } from '../game/session';
+import type { BlockReason, ShipmentOutcome, ShipmentSnapshot, TickResult } from '../game/session';
 import { audio } from '../game/systems/AudioManager';
 import { haptics } from '../game/systems/Haptics';
-import { HazardSystem } from '../game/systems/HazardSystem';
 import { requestHint } from '../game/systems/HintService';
-import { PlacementSystem } from '../game/systems/PlacementSystem';
 import { progress } from '../game/systems/ProgressManager';
-import { formatScore, newRun, scoreWave } from '../game/systems/RunManager';
+import { formatScore, newRun } from '../game/systems/RunManager';
 import type { RunState } from '../game/systems/RunManager';
-import { hintFor } from '../game/systems/Solver';
-import { Easing } from '../render/Tween';
-import type { ThreeStage } from '../render/three/ThreeStage';
-import { Warehouse } from '../render/three/Warehouse';
+import { InteractionController } from '../input/InteractionController';
+import type { BoardView, ClientPoint, DropTarget, GameView, RenderMode } from '../render/GameView';
 import { Hud } from '../ui/Hud';
 import { levelSelectScreen } from '../ui/LevelSelect';
 import { menuScreen } from '../ui/Menu';
@@ -44,34 +44,49 @@ import {
 } from '../ui/Panels';
 import type { FailReason } from '../ui/Panels';
 import { btn, el, fadeIn, fadeOut, iconBtn, uiRoot } from '../ui/dom';
-import { Cargo3D } from '../render/three/world/Cargo3D';
-import { Conveyor3D } from '../render/three/world/Conveyor3D';
-import { Rack3D } from '../render/three/world/Rack3D';
-import type { GhostKind } from '../render/three/world/Rack3D';
 
 export interface GameData {
   levelId?: number;
   run?: RunState;
 }
 
-type Phase = 'play' | 'paused' | 'resolving';
-
-interface DropTarget {
-  shelf: number;
-  slot: number;
-  kind: GhostKind;
-  reason: string;
+/** Read-only probe for browser tests (`?e2e`) and dev builds. */
+export interface GameTestHook {
+  readonly mode: RenderMode;
+  snapshot(): ShipmentSnapshot;
+  board(): BoardView;
+  /** The drop target currently shown for the package in hand (what a release would commit), or null. */
+  aimed(): DropTarget | null;
+  clientPointOf(target: Parameters<GameView['clientPointOf']>[0]): ClientPoint | null;
 }
 
-interface Falling {
-  cargo: Cargo3D;
-  vel: THREE.Vector3;
-  spin: number;
-  settled: boolean;
+declare global {
+  interface Window {
+    __cargoPanic?: GameTestHook;
+  }
 }
 
-/** Bottom fraction of the canvas that counts as "drop it back on the belt". */
-const BELT_ZONE = 0.76;
+function testHookEnabled(): boolean {
+  try {
+    return import.meta.env.DEV || new URLSearchParams(window.location.search).has('e2e');
+  } catch {
+    return false;
+  }
+}
+
+/** HUD copy for why a fully stowed board cannot finish yet. */
+function blockText(r: BlockReason): string {
+  switch (r.key) {
+    case 'overloaded':
+      return 'A SHELF IS OVER ITS LOAD LIMIT';
+    case 'crushed':
+      return 'FRAGILE CARGO IS BEING CRUSHED';
+    case 'priority':
+      return 'PRIORITY CARGO MUST SIT IN THE GOLD ZONE';
+    case 'imbalance':
+      return `IMBALANCE MUST DROP BELOW ${r.limit.toFixed(1)}`;
+  }
+}
 
 export function gameScreen(ctx: AppContext, data: GameData): Screen {
   return new GameController(ctx, data);
@@ -81,47 +96,27 @@ class GameController implements Screen {
   private level: LevelDef;
   private run: RunState | null;
   private graceScale: number;
+  private session: GameSession;
 
-  private warehouse!: Warehouse;
-  private rack!: Rack3D;
-  private conveyor!: Conveyor3D;
+  private view!: GameView;
+  private interaction!: InteractionController;
   private hud!: Hud;
   private meter!: Meter;
-  private board: PlacementSystem;
-  private hazards: HazardSystem;
-
-  private cargo: Cargo3D[] = [];
-  private queue: number[] = [];
-  private evalCache!: BoardEval;
-  private canFinish = false;
-
-  private phase: Phase = 'play';
-  private dragged: Cargo3D | null = null;
-  private dragGrab = new THREE.Vector3();
-  private pointerClient = { x: 0, y: 0 };
-  private dragLift = 0;
-  private dragLiftTarget = 0;
-  private dragZ: number = W3.dragZ;
-  private dragOrigin: { shelf: number; slot: number } | null = null;
-  private target: DropTarget | null = null;
-  private overBelt = false;
+  private controls!: HTMLElement;
   private beltZone!: HTMLElement;
   private dangerEl!: HTMLElement;
 
   private creakAccum = 0;
   private beepAccum = 0;
   private beepStep = 0;
-  private winAccum = 0;
-  private mistakes = 0;
-  private hintUsed = false;
   private hintTimer = 0;
   private tip?: TipCard;
   private waveCard?: WaveClearCard;
   private advancing = false;
-  private falling: Falling[] = [];
   private timers: number[] = [];
   private offFrame?: () => void;
-  private controls!: HTMLElement;
+  private offAdvanceTap?: () => void;
+  private testHook?: GameTestHook;
 
   constructor(
     private ctx: AppContext,
@@ -132,16 +127,15 @@ class GameController implements Screen {
       const plan = getWave(this.run.seed, this.run.wave);
       this.level = plan.level;
       this.graceScale = plan.graceScale;
+      this.session = new GameSession(this.level, {
+        source: waveSource(this.run),
+        graceScale: this.graceScale,
+      });
     } else {
       this.level = getLevel(data.levelId ?? 1);
       this.graceScale = 1;
+      this.session = new GameSession(this.level, { source: { mode: 'campaign', levelId: this.level.id } });
     }
-    this.board = new PlacementSystem(this.level);
-    this.hazards = new HazardSystem(this.level, this.graceScale);
-  }
-
-  private get r() {
-    return this.ctx.stage as ThreeStage;
   }
 
   // ==========================================================================
@@ -149,15 +143,9 @@ class GameController implements Screen {
   // ==========================================================================
 
   enter() {
-    const r = this.r;
-    const tiers = this.level.shelves.length;
-    const maxSlots = Math.max(...this.level.shelves.map((s) => s.slots));
-    r.frame(tiers, maxSlots);
-
-    this.rack = new Rack3D(r.tweens, this.level, r.scene);
-    this.warehouse = new Warehouse({ rackHalfWidth: this.rack.halfWidth });
-    r.scene.add(this.warehouse.group);
-    this.conveyor = new Conveyor3D(r.scene, this.rack.halfWidth);
+    const stage = this.ctx.stage;
+    this.view = stage.createGameView();
+    this.view.mount(this.boardView());
 
     this.meter = new Meter(this.level.balanceTolerance);
     this.hud = new Hud(
@@ -190,15 +178,7 @@ class GameController implements Screen {
     this.dangerEl = el('div', { id: 'danger' });
     uiRoot().append(this.dangerEl, this.beltZone, this.controls);
 
-    for (let id = 0; id < this.level.packages.length; id++) {
-      const c = new Cargo3D(r.tweens, id, this.level.packages[id]);
-      c.mesh.visible = false;
-      r.scene.add(c.mesh);
-      this.cargo.push(c);
-      this.queue.push(id);
-    }
-    this.refreshQueue(true);
-    this.refreshBoard();
+    this.refreshUi();
 
     if (this.run) {
       this.tip = new TipCard(this.waveIntro());
@@ -208,39 +188,55 @@ class GameController implements Screen {
       this.tip = new TipCard(this.level.tip);
     }
 
-    const canvas = r.canvas;
-    canvas.addEventListener('pointerdown', this.onPointerDown);
-    canvas.addEventListener('pointermove', this.onPointerMove);
-    canvas.addEventListener('pointerup', this.onPointerUp);
-    canvas.addEventListener('pointercancel', this.onPointerCancel);
-    window.addEventListener('blur', this.onPointerCancel);
+    this.interaction = new InteractionController({
+      surface: stage.canvas,
+      session: this.session,
+      view: this.view,
+      hooks: {
+        grabbed: () => {
+          audio.unlock();
+          this.clearHint();
+          this.tip?.dismiss();
+          audio.pickup();
+          haptics.tap();
+        },
+        preview: (net) => (net === null ? this.meter.hidePreview() : this.meter.showPreview(net)),
+        beltHover: (on) => this.beltZone.classList.toggle('on', on),
+        rejected: (reason) => {
+          this.hud.toast(reason);
+          audio.invalid();
+          haptics.reject();
+        },
+        placed: () => this.refresh(),
+        landed: (id) => this.landingFeedback(id),
+        toBelt: () => {
+          this.hud.toast('BACK ON THE BELT', 'info');
+          this.refresh();
+        },
+      },
+    });
+    this.interaction.attach();
 
-    this.offFrame = this.ctx.loop.onFrame((dt) => this.update(dt));
+    this.offFrame = this.ctx.loop.onFrame(this.frame);
+    this.installTestHook();
     fadeIn();
   }
 
   exit() {
-    const canvas = this.r.canvas;
-    canvas.removeEventListener('pointerdown', this.onPointerDown);
-    canvas.removeEventListener('pointermove', this.onPointerMove);
-    canvas.removeEventListener('pointerup', this.onPointerUp);
-    canvas.removeEventListener('pointercancel', this.onPointerCancel);
-    window.removeEventListener('blur', this.onPointerCancel);
     this.offFrame?.();
+    this.interaction.detach();
+    this.offAdvanceTap?.();
     for (const t of this.timers) clearTimeout(t);
     clearTimeout(this.hintTimer);
     this.tip?.dismiss();
     this.waveCard?.dismiss();
-    for (const c of this.cargo) c.dispose();
-    this.cargo = [];
-    this.rack.dispose();
-    this.conveyor.dispose();
-    this.warehouse.dispose();
+    this.view.dispose();
     this.hud.destroy();
     this.meter.destroy();
     this.controls.remove();
     this.beltZone.remove();
     this.dangerEl.remove();
+    if (this.testHook && window.__cargoPanic === this.testHook) delete window.__cargoPanic;
   }
 
   private after(ms: number, fn: () => void) {
@@ -254,362 +250,93 @@ class GameController implements Screen {
   }
 
   private restartLevel() {
+    this.interaction.cancel();
     const id = this.level.id;
     this.goto((c) => gameScreen(c, { levelId: id }));
   }
 
-  // ==========================================================================
-  // Queue
-  // ==========================================================================
-
-  private refreshQueue(instant = false) {
-    const cv = this.conveyor;
-    for (const c of this.cargo) {
-      if (c.state === 'placed' || c === this.dragged || c.state === 'falling') continue;
-      const qi = this.queue.indexOf(c.id);
-      if (qi < 0) {
-        c.mesh.visible = false;
-        continue;
-      }
-      const tw = this.r.tweens;
-      tw.kill(c.mesh.position);
-      c.mesh.visible = true;
-      if (qi === 0) {
-        c.setOpacity(1);
-        c.mesh.scale.set(1, 1, 1);
-        if (instant) {
-          c.mesh.position.set(cv.liveX, cv.cargoY, cv.z);
-        } else {
-          if (c.mesh.position.z < cv.z - 0.5) c.mesh.position.set(cv.liveX - 4, cv.cargoY, cv.z);
-          tw.add(c.mesh.position, { x: cv.liveX, y: cv.cargoY, z: cv.z }, { ms: 320, ease: Easing.backOut });
-        }
-      } else if (qi <= 2) {
-        const x = cv.queueX[qi - 1];
-        c.setOpacity(0.62);
-        if (instant) {
-          c.mesh.position.set(x, cv.cargoY, cv.z);
-          c.mesh.scale.set(0.86, 0.86, 0.86);
-        } else {
-          tw.add(c.mesh.position, { x, y: cv.cargoY, z: cv.z }, { ms: 280 });
-          tw.add(c.mesh.scale, { x: 0.86, y: 0.86, z: 0.86 }, { ms: 280 });
-        }
-      } else {
-        c.mesh.visible = false;
-        c.mesh.position.set(cv.queueX[1] + 2.2, cv.cargoY, cv.z);
-        c.mesh.scale.set(0.86, 0.86, 0.86);
-      }
-    }
-  }
-
-  private placedCargo() {
-    return this.cargo.filter((c) => c.state === 'placed');
-  }
-
-  // ==========================================================================
-  // Dragging
-  // ==========================================================================
-
-  private onPointerDown = (e: PointerEvent) => {
-    if (this.phase !== 'play' || this.dragged) return;
-    audio.unlock();
-    const candidates: THREE.Object3D[] = [];
-    const cur = this.queue[0] !== undefined ? this.cargo[this.queue[0]] : null;
-    if (cur && cur.state === 'queued') candidates.push(cur.mesh);
-    for (const c of this.placedCargo()) candidates.push(c.mesh);
-    const hit = this.r.pick(e.clientX, e.clientY, candidates);
-    if (!hit) return;
-    const cargo = this.cargo[hit.userData.cargoId as number];
-    if (cargo) {
-      this.r.canvas.setPointerCapture(e.pointerId);
-      this.beginDrag(cargo, e);
-    }
-  };
-
-  private beginDrag(c: Cargo3D, e: PointerEvent) {
-    this.clearHint();
-    this.tip?.dismiss();
-    this.dragged = c;
-    const wasPlaced = c.state === 'placed';
-    c.state = 'dragging';
-    c.mesh.visible = true;
-    c.setOpacity(1);
-
-    if (wasPlaced) {
-      this.dragOrigin = { shelf: c.shelf, slot: c.slot };
-      this.board.remove(c.id);
-      this.rack.detach(c, this.r.scene);
-      this.r.tweens.add(c.mesh.rotation, { z: 0 }, { ms: 140 });
-      this.refreshBoard();
-    } else {
-      this.dragOrigin = null;
-      this.queue.shift();
-      this.refreshQueue();
-    }
-    this.r.tweens.kill(c.mesh.position);
-    c.setDragging(true);
-
-    this.pointerClient = { x: e.clientX, y: e.clientY };
-    this.dragLift = 0;
-    this.dragLiftTarget = e.pointerType === 'touch' ? W3.touchLift : 0;
-    // Start the drag plane where the cargo is, then ease it in to the shelves.
-    this.dragZ = c.mesh.position.z;
-    const p = this.r.pointerOnPlane(e.clientX, e.clientY, this.dragZ);
-    if (p) {
-      this.dragGrab.set(c.mesh.position.x - p.x, c.mesh.position.y - p.y, 0);
-      if (Math.abs(this.dragGrab.x) > c.width * 0.4) this.dragGrab.x = 0;
-      this.dragGrab.y = Math.max(-W3.cargoH * 0.5, Math.min(W3.cargoH * 0.5, this.dragGrab.y));
-    } else {
-      this.dragGrab.set(0, 0, 0);
-    }
-
-    this.conveyor.setDragging(true);
-    this.rack.updateCrushColumns(this.placedCargo(), PlacementSystem.isCrusher(c.type));
-    audio.pickup();
-    haptics.tap();
-  }
-
-  private onPointerMove = (e: PointerEvent) => {
-    if (!this.dragged) return;
-    this.pointerClient = { x: e.clientX, y: e.clientY };
-  };
-
-  private updateDrag(dt: number) {
-    const c = this.dragged;
-    if (!c) return;
-    const k = 1 - Math.pow(0.0004, dt / 1000);
-    this.dragLift += (this.dragLiftTarget - this.dragLift) * k;
-    this.dragZ += (W3.dragZ - this.dragZ) * k;
-
-    const p = this.r.pointerOnPlane(this.pointerClient.x, this.pointerClient.y, this.dragZ);
-    if (!p) return;
-    c.mesh.position.set(p.x + this.dragGrab.x, p.y + this.dragGrab.y + this.dragLift, this.dragZ);
-    this.updateTarget();
-  }
-
-  private updateTarget() {
-    const c = this.dragged;
-    if (!c) return;
-
-    const rect = this.r.canvas.getBoundingClientRect();
-    const fy = (this.pointerClient.y - rect.top) / rect.height;
-    if (fy > BELT_ZONE) {
-      this.target = null;
-      this.rack.hideGhost();
-      this.meter.hidePreview();
-      this.setOverBelt(true);
-      return;
-    }
-    this.setOverBelt(false);
-
-    const local = this.rack.toLocal(c.mesh.position);
-    const tier = this.rack.nearestShelf(local.x, local.y);
-    if (tier < 0) {
-      this.target = null;
-      this.rack.hideGhost();
-      this.meter.hidePreview();
-      return;
-    }
-    const shelf = this.rack.shelves[tier];
-    const slot = shelf.slotFromX(local.x, c.slots);
-    const rejection = this.board.check(c.type, tier, slot, c.id);
-    if (rejection) {
-      this.target = { shelf: tier, slot, kind: 'bad', reason: rejectionMessage(rejection) };
-      this.rack.showGhost(tier, slot, c.slots, 'bad');
-      this.meter.hidePreview();
-      return;
-    }
-    const preview = this.board.previewEval(c.type, tier, slot, c.id);
-    const willCrush = preview.crushed.length > 0;
-    const willOverload = preview.overloaded.includes(tier);
-    const kind: GhostKind = willCrush || willOverload ? 'crush' : 'ok';
-    const reason = willCrush ? 'CRUSHES FRAGILE CARGO' : willOverload ? 'OVER LOAD LIMIT' : '';
-    this.target = { shelf: tier, slot, kind, reason };
-    this.rack.showGhost(tier, slot, c.slots, kind);
-    this.meter.showPreview(preview.net);
-  }
-
-  private setOverBelt(on: boolean) {
-    if (on === this.overBelt) return;
-    this.overBelt = on;
-    this.beltZone.classList.toggle('on', on);
-  }
-
-  private onPointerUp = () => {
-    const c = this.dragged;
-    if (!c) return;
-    const overBelt = this.overBelt;
-    this.dragged = null;
-    this.conveyor.setDragging(false);
-    this.rack.hideGhost();
-    this.meter.hidePreview();
-    this.setOverBelt(false);
-    c.setDragging(false);
-    const target = this.target;
-    this.target = null;
-
-    if (target && target.kind !== 'bad') {
-      this.commitPlacement(c, target.shelf, target.slot);
-      return;
-    }
-    if (target && target.kind === 'bad') {
-      this.mistakes++;
-      this.hud.toast(target.reason);
-      audio.invalid();
-      haptics.reject();
-    }
-    this.returnCargo(c, overBelt);
-  };
-
-  private onPointerCancel = () => {
-    const c = this.dragged;
-    if (!c) return;
-    this.dragged = null;
-    this.target = null;
-    this.conveyor.setDragging(false);
-    this.rack.hideGhost();
-    this.meter.hidePreview();
-    this.setOverBelt(false);
-    c.setDragging(false);
-    this.returnCargo(c, false);
-  };
-
-  /** Back to its shelf if it came off one, otherwise the front of the belt. */
-  private returnCargo(c: Cargo3D, forceToBelt: boolean) {
-    const origin = this.dragOrigin;
-    this.dragOrigin = null;
-    if (origin && !forceToBelt) {
-      if (!this.board.check(c.type, origin.shelf, origin.slot, c.id)) {
-        this.commitPlacement(c, origin.shelf, origin.slot, true);
-        return;
-      }
-    }
-    c.state = 'queued';
-    c.shelf = -1;
-    c.slot = -1;
-    c.setCracking(false);
-    c.setHinted(false);
-    this.queue.unshift(c.id);
-    if (forceToBelt && origin) this.hud.toast('BACK ON THE BELT', 'info');
-
-    const cv = this.conveyor;
-    this.r.tweens.kill(c.mesh.position);
-    this.r.tweens.add(c.mesh.position, { x: cv.liveX, y: cv.cargoY, z: cv.z }, {
-      ms: 260,
-      ease: Easing.backOut,
-      onDone: () => this.refreshQueue(true),
-    });
-    this.r.tweens.add(c.mesh.rotation, { z: 0 }, { ms: 200 });
-    this.refreshQueue();
-    this.refreshBoard();
-  }
-
-  private commitPlacement(c: Cargo3D, tier: number, slot: number, quiet = false) {
-    const shelf = this.rack.shelves[tier];
-    this.rack.attach(c);
-    c.state = 'placed';
-    c.shelf = tier;
-    c.slot = slot;
-    this.board.place(c.id, c.type, tier, slot);
-    this.dragOrigin = null;
-
-    const tx = shelf.slotCentreX(slot, c.slots);
-    const ty = shelf.cargoCentreY;
-    const dist = Math.hypot(c.mesh.position.x - tx, c.mesh.position.y - ty, c.mesh.position.z);
-    const ms = quiet ? 140 : Math.max(130, Math.min(300, 90 + dist * 60));
-    this.r.tweens.kill(c.mesh.position);
-    this.r.tweens.add(c.mesh.position, { x: tx, y: ty, z: 0.02 }, {
-      ms,
-      ease: quiet ? Easing.quadOut : Easing.backIn,
-      onDone: () => this.onLanded(c, tier, quiet),
-    });
-    this.r.tweens.add(c.mesh.rotation, { x: 0, y: 0, z: 0 }, { ms });
-    this.refreshBoard();
-    this.refreshQueue();
-  }
-
-  private onLanded(c: Cargo3D, tier: number, quiet: boolean) {
-    const shelf = this.rack.shelves[tier];
-    c.landBounce(c.weight);
-    shelf.flex(c.weight);
-    if (!quiet) {
-      const at = c.worldPosition();
-      at.y -= W3.cargoH / 2;
-      at.z += W3.cargoD / 2;
-      this.r.particles.emit('dust', at, 5 + c.weight);
-      if (c.type === 'heavy') {
-        audio.placeHeavy();
-        haptics.thud();
-        this.r.shake(0.06, 160);
-        this.r.particles.emit('spark', at, 6, 0xf0a53c);
-      } else if (c.type === 'fragile') {
-        audio.placeFragile();
-        haptics.place();
-      } else {
-        audio.place(c.weight);
-        haptics.place();
-      }
-    }
-    this.refreshBoard();
+  private installTestHook() {
+    if (!testHookEnabled()) return;
+    const hook: GameTestHook = {
+      mode: this.view.mode,
+      snapshot: () => this.session.snapshot(),
+      board: () => this.boardView(),
+      aimed: () => this.interaction.aimed,
+      clientPointOf: (t) => this.view.clientPointOf(t),
+    };
+    this.testHook = Object.freeze(hook);
+    window.__cargoPanic = this.testHook;
   }
 
   // ==========================================================================
   // Board state
   // ==========================================================================
 
-  private refreshBoard() {
-    const ev = this.board.evaluate();
-    this.evalCache = ev;
-    this.meter.setValue(ev.net, ev.leftTorque, ev.rightTorque, ev.status);
-    this.rack.setBalance(ev.net, this.level.balanceTolerance, ev.status === 'danger');
-    for (const s of this.rack.shelves) {
-      s.setLoad(ev.shelfWeights[s.tier]);
-      s.setOverloaded(ev.overloaded.includes(s.tier));
-    }
-    for (const c of this.cargo) if (c.type === 'fragile') c.setCracking(ev.crushed.includes(c.id));
-    this.rack.updateCrushColumns(this.placedCargo(), !!this.dragged && PlacementSystem.isCrusher(this.dragged.type));
-    const left = this.level.packages.length - this.board.count;
-    this.hud.setRemaining(left, this.level.packages.length);
-    const blocker = this.blockingReason(ev);
-    this.canFinish = left === 0 && blocker === null;
-    this.hud.setObjective(blocker ?? this.level.objective);
+  private boardView(): BoardView {
+    const s = this.session;
+    const evaluation = s.evaluation;
+    return {
+      level: s.level,
+      queue: s.queue,
+      placements: s.placements,
+      evaluation,
+      held: s.held,
+      wobble: evaluation.status === 'danger',
+    };
   }
 
-  private blockingReason(ev: BoardEval): string | null {
-    if (this.board.count < this.level.packages.length) return null;
-    if (ev.overloaded.length > 0) return 'A SHELF IS OVER ITS LOAD LIMIT';
-    if (ev.crushed.length > 0) return 'FRAGILE CARGO IS BEING CRUSHED';
-    if (!ev.prioritySatisfied) return 'PRIORITY CARGO MUST SIT IN THE GOLD ZONE';
-    const limit = this.level.finalBalanceMax ?? this.level.balanceTolerance;
-    if (ev.imbalance > limit) return `IMBALANCE MUST DROP BELOW ${limit.toFixed(1)}`;
-    return null;
+  /** After every committed command: redraw the board, then the HUD and meter. */
+  private refresh() {
+    this.view.sync(this.boardView());
+    this.refreshUi();
+  }
+
+  private refreshUi() {
+    const s = this.session;
+    const ev = s.evaluation;
+    this.meter.setValue(ev.net, ev.leftTorque, ev.rightTorque, ev.status);
+    this.hud.setRemaining(s.remaining, this.level.packages.length);
+    const blocker = s.blockReason();
+    this.hud.setObjective(blocker ? blockText(blocker) : this.level.objective);
+  }
+
+  /** Touchdown sound and buzz for a committed placement, by cargo type. */
+  private landingFeedback(id: number) {
+    const type = this.level.packages[id];
+    if (type === 'heavy') {
+      audio.placeHeavy();
+      haptics.thud();
+    } else if (type === 'fragile') {
+      audio.placeFragile();
+      haptics.place();
+    } else {
+      audio.place(PACKAGE_SPECS[type].weight);
+      haptics.place();
+    }
   }
 
   // ==========================================================================
   // Per-frame
   // ==========================================================================
 
-  private update(dt: number) {
-    this.rack.tick(dt);
-    this.meter.tick(dt);
-    this.conveyor.tick(dt);
-    this.warehouse.tick(dt);
-    if (this.dragged) this.updateDrag(dt);
-    this.updateFalling(dt);
-    if (this.phase !== 'play') return;
+  private frame = (animMs: number, realMs: number) => {
+    this.view.update(animMs);
+    this.interaction.update();
+    this.meter.tick(animMs);
+    if (this.session.phase !== 'play') return;
 
-    const hazard = this.hazards.update(this.evalCache, dt);
+    const r = this.session.advance(realMs);
+    this.showHazard(r, realMs);
+    if (r.outcome) this.onOutcome(r.outcome);
+  };
+
+  private showHazard(r: TickResult, dt: number) {
+    const hazard = r.hazard;
     if (hazard.kind) {
-      this.winAccum = 0;
       this.tip?.dismiss();
       this.hud.showHazard(hazard.kind, hazard.remaining, hazard.total);
       this.dangerEl.classList.add('on');
       this.runHazardAudio(dt, hazard.urgency);
-      if (hazard.expired) {
-        this.failLevel(
-          hazard.kind === 'balance' ? 'collapse' : hazard.kind === 'overload' ? 'overload' : 'fragile',
-          hazard.owner,
-        );
-      }
       return;
     }
     this.creakAccum = 0;
@@ -617,13 +344,6 @@ class GameController implements Screen {
     this.beepStep = 0;
     this.hud.hideHazard();
     this.dangerEl.classList.remove('on');
-
-    if (this.canFinish) {
-      this.winAccum += dt;
-      if (this.winAccum >= WIN_SETTLE_MS) this.winLevel();
-    } else {
-      this.winAccum = 0;
-    }
   }
 
   private runHazardAudio(dt: number, urgency: number) {
@@ -640,32 +360,16 @@ class GameController implements Screen {
     }
   }
 
-  /** Cargo knocked off the rack: a tiny deterministic tumble, no physics engine. */
-  private updateFalling(dt: number) {
-    const s = dt / 1000;
-    for (const f of this.falling) {
-      if (f.settled) continue;
-      const m = f.cargo.mesh;
-      f.vel.y -= 14 * s;
-      m.position.addScaledVector(f.vel, s);
-      m.rotation.z += f.spin * s;
-      const floor = W3.cargoH / 2 + 0.02;
-      if (m.position.y <= floor) {
-        m.position.y = floor;
-        if (Math.abs(f.vel.y) > 1.2) {
-          f.vel.y = -f.vel.y * 0.32;
-          f.vel.x *= 0.6;
-          f.spin *= 0.5;
-          const at = m.position.clone();
-          at.y -= W3.cargoH / 2;
-          this.r.particles.emit('debris', at, 5);
-          this.r.particles.emit('dust', at, 5);
-        } else {
-          f.settled = true;
-          f.vel.set(0, 0, 0);
-          m.rotation.z = Math.round(m.rotation.z / (Math.PI / 2)) * (Math.PI / 2);
-        }
-      }
+  private onOutcome(o: ShipmentOutcome) {
+    // Whatever is in hand stays where the rules had it; its pointerup is ignored.
+    this.interaction.abort();
+    this.beltZone.classList.remove('on');
+    this.meter.hidePreview();
+    if (o.result === 'won') {
+      if (this.run) this.clearWave(o);
+      else this.winLevel(o);
+    } else {
+      this.failLevel(o);
     }
   }
 
@@ -674,8 +378,10 @@ class GameController implements Screen {
   // ==========================================================================
 
   private onHint() {
-    if (this.phase !== 'play' || this.dragged) return;
-    if (this.queue.length === 0) {
+    if (this.session.phase !== 'play') return;
+    // A second finger on HINT mid-drag: the package goes back first (the session refuses hints while one is held).
+    this.interaction.cancel();
+    if (this.session.queue.length === 0) {
       this.hud.toast('EVERYTHING IS STOWED - FIX THE BALANCE', 'info');
       return;
     }
@@ -683,54 +389,43 @@ class GameController implements Screen {
   }
 
   private applyHint() {
-    const currentId = this.queue[0];
-    const hint = hintFor(this.level, this.board.list, this.queue.slice(), currentId);
+    const current = this.session.current;
+    const hint = this.session.hint();
+    if (current === null || !hint) return;
     if (hint.kind === 'stuck') {
       this.hud.toast('NO SOLUTION FROM HERE - TAP RESTART', 'info');
       return;
     }
-    this.hintUsed = true;
     this.clearHint();
-    const c = this.cargo[currentId];
-    c.setHinted(true);
-    this.rack.showGhost(hint.shelf, hint.slot, c.slots, 'ok');
+    this.view.showHint(current, { shelf: hint.shelf, slot: hint.slot });
     if (hint.kind === 'rearrange') this.hud.toast('SOME STOWED CARGO NEEDS MOVING TOO', 'info');
     this.hintTimer = window.setTimeout(() => this.clearHint(), 4200);
   }
 
   private clearHint() {
     clearTimeout(this.hintTimer);
-    for (const c of this.cargo) c.setHinted(false);
-    if (!this.dragged) this.rack.hideGhost();
+    this.view.clearHint();
   }
 
   // ==========================================================================
   // Resolution
   // ==========================================================================
 
-  private winLevel() {
-    if (this.run) {
-      this.clearWave();
-      return;
-    }
-    this.phase = 'resolving';
+  private endHazardUi() {
     this.clearHint();
     this.hud.hideHazard();
     this.dangerEl.classList.remove('on');
+  }
 
-    const ev = this.evalCache;
-    const limit = this.level.finalBalanceMax ?? this.level.balanceTolerance;
-    let stars = 3;
-    if (this.hintUsed || this.mistakes > 0 || ev.imbalance > limit * 0.4) stars = 2;
-    if (this.mistakes >= 3) stars = 1;
-
+  private winLevel(o: ShipmentOutcome) {
+    this.endHazardUi();
+    const stars = campaignStars(o);
     const previousBest = progress.bestBalanceFor(this.level.id);
-    const record = progress.recordWin(this.level.id, stars, ev.imbalance);
+    const record = progress.recordWin(this.level.id, stars, o.imbalance);
 
     audio.win();
     haptics.win();
-    this.celebrate();
-    this.rack.celebrate();
+    this.view.celebrate();
 
     const id = this.level.id;
     this.after(520, () => {
@@ -738,11 +433,11 @@ class GameController implements Screen {
         {
           levelId: id,
           stars,
-          imbalance: ev.imbalance,
-          tolerance: limit,
+          imbalance: o.imbalance,
+          tolerance: o.limit,
           packages: this.level.packages.length,
-          mistakes: this.mistakes,
-          hintUsed: this.hintUsed,
+          mistakes: o.rejectedDrops,
+          hintUsed: o.assists.hints > 0,
           isLastLevel: id >= TOTAL_LEVELS,
           newBest: record.balanceImproved && previousBest !== null,
           firstClear: previousBest === null,
@@ -756,51 +451,34 @@ class GameController implements Screen {
     });
   }
 
-  private celebrate() {
-    const at = new THREE.Vector3(0, this.rack.topY + 0.5, 1);
-    const p = this.r.particles;
-    p.emit('confetti', at, 46);
-    this.after(220, () => p.emit('confetti', new THREE.Vector3(-2, this.rack.topY, 1), 26));
-    this.after(400, () => p.emit('confetti', new THREE.Vector3(2, this.rack.topY, 1), 26));
-  }
+  private failLevel(o: ShipmentOutcome) {
+    this.endHazardUi();
+    const f = o.failure;
+    const net = this.session.evaluation.net;
+    let reason: FailReason;
+    let detail: string;
 
-  private failLevel(reason: FailReason, owner: number) {
-    this.phase = 'resolving';
-    this.clearHint();
-    this.hud.hideHazard();
-    this.dangerEl.classList.remove('on');
-    const ev = this.evalCache;
-    let detail = '';
-
-    if (reason === 'collapse') {
-      const dir = ev.net >= 0 ? 1 : -1;
-      detail = `Imbalance reached ${ev.imbalance.toFixed(1)} against a limit of ${this.level.balanceTolerance.toFixed(1)}.`;
+    if (!f || f.kind === 'balance') {
+      reason = 'collapse';
+      const imbalance = f?.imbalance ?? o.imbalance;
+      const tolerance = f?.tolerance ?? this.level.balanceTolerance;
+      detail = `Imbalance reached ${imbalance.toFixed(1)} against a limit of ${tolerance.toFixed(1)}.`;
       audio.collapse();
       haptics.crash();
-      this.r.shake(0.32, 620);
       this.flash();
-      this.rack.collapse(dir, () => undefined);
-      this.after(180, () => this.spillCargo(this.placedCargo(), dir));
-    } else if (reason === 'overload') {
-      const shelf = this.rack.shelves[owner];
-      detail = `Tier ${owner + 1} carried ${ev.shelfWeights[owner]} against a rating of ${shelf.def.maxWeight}.`;
+      this.view.failCollapse((f?.net ?? net) >= 0 ? 1 : -1);
+    } else if (f.kind === 'overload') {
+      reason = 'overload';
+      detail = `Tier ${f.tier + 1} carried ${f.load} against a rating of ${f.max}.`;
       audio.collapse();
       haptics.crash();
-      this.r.shake(0.22, 480);
-      const victims = this.placedCargo().filter((c) => c.shelf <= owner);
-      this.after(120, () => this.spillCargo(victims, ev.net >= 0 ? 1 : -1));
+      this.view.failOverload(f.tier, net >= 0 ? 1 : -1);
     } else {
-      const c = this.cargo[owner];
+      reason = 'fragile';
       detail = 'A heavy crate was stacked in the column above the glass.';
       audio.shatter();
       haptics.crash();
-      this.r.shake(0.16, 320);
-      if (c && c.state === 'placed') {
-        this.r.particles.emit('glass', c.worldPosition(), 26);
-        this.r.tweens.add(c.mesh.scale, { x: 1.25, y: 0.7 }, { ms: 220 });
-        const fade = { v: 1 };
-        this.r.tweens.add(fade, { v: 0 }, { ms: 220, onUpdate: () => c.setOpacity(fade.v) });
-      }
+      this.view.failFragile(f.fragileId);
     }
 
     audio.fail();
@@ -847,24 +525,6 @@ class GameController implements Screen {
     f.classList.add('go');
   }
 
-  /** Deterministic per package id - a replay of the same board looks the same. */
-  private spillCargo(victims: Cargo3D[], dir: number) {
-    victims.forEach((c, i) => {
-      this.rack.detach(c, this.r.scene);
-      c.setCracking(false);
-      c.state = 'falling';
-      const r = ((c.id * 9301 + 49297) % 233280) / 233280;
-      this.after(i * 45, () => {
-        this.falling.push({
-          cargo: c,
-          vel: new THREE.Vector3(dir * (1.5 + r * 3) + (r - 0.5) * 2, 1 + r * 2, 1.2 + r),
-          spin: dir * (2 + r * 5),
-          settled: false,
-        });
-      });
-    });
-  }
-
   // ==========================================================================
   // Endless
   // ==========================================================================
@@ -889,86 +549,44 @@ class GameController implements Screen {
     return note ? `${note}\n${stats}` : stats;
   }
 
-  private clearWave() {
+  private clearWave(o: ShipmentOutcome) {
     const run = this.run;
     if (!run) return;
-    this.phase = 'resolving';
-    this.clearHint();
-    this.hud.hideHazard();
-    this.dangerEl.classList.remove('on');
+    this.endHazardUi();
     this.tip?.dismiss();
 
-    const ev = this.evalCache;
-    const weight = this.level.packages.reduce((n, t) => n + PACKAGE_SPECS[t].weight, 0);
-    const result = scoreWave({
-      wave: run.wave,
-      manifestWeight: weight,
-      imbalance: ev.imbalance,
-      tolerance: this.level.balanceTolerance,
-      mistakes: this.mistakes,
-      hintUsed: this.hintUsed,
-    });
-    run.score += result.total;
-    run.stowed += this.level.packages.length;
-    if (result.clean) run.cleanWaves++;
+    // Applied once per wave, however often this is reached.
+    const { result } = rewardWave(run, this.level, o);
 
     audio.win();
     haptics.win();
     this.hud.setSubtitle(formatScore(run.score));
     this.hud.pulseSubtitle();
-    this.celebrate();
-    this.rack.celebrate();
-    this.dispatchCargo();
+    this.view.celebrate();
+    this.view.dispatch({ onEach: () => audio.pickup() });
+    // The rack is empty now: the readouts follow.
+    this.meter.setValue(0, 0, 0, 'stable');
+    this.hud.setObjective(this.level.objective);
+    this.hud.setRemaining(0, this.level.packages.length);
     this.waveCard = new WaveClearCard(result);
 
     this.after(700, () => {
-      if (this.phase === 'resolving') {
-        this.r.canvas.addEventListener('pointerdown', () => this.advanceWave(), { once: true });
-      }
+      if (this.advancing) return;
+      const canvas = this.ctx.stage.canvas;
+      const tap = () => this.advanceWave();
+      canvas.addEventListener('pointerdown', tap, { once: true });
+      this.offAdvanceTap = () => canvas.removeEventListener('pointerdown', tap);
     });
     this.after(2400, () => this.advanceWave());
-  }
-
-  /** Cargo rides off to the right, like a truck taking the load. */
-  private dispatchCargo() {
-    const packages = this.placedCargo().sort((a, b) => a.mesh.position.x - b.mesh.position.x);
-    this.board.clear();
-    packages.forEach((c, i) => {
-      this.rack.detach(c, this.r.scene);
-      c.setCracking(false);
-      c.state = 'falling';
-      c.shelf = -1;
-      c.slot = -1;
-      const at = c.worldPosition();
-      const fade = { v: 1 };
-      this.r.tweens.add(c.mesh.position, { x: at.x + 14, y: at.y + 0.3 }, {
-        ms: 540,
-        delay: i * 55,
-        ease: Easing.backIn,
-      });
-      this.r.tweens.add(fade, { v: 0 }, {
-        ms: 540,
-        delay: i * 55,
-        ease: Easing.quadIn,
-        onUpdate: () => c.setOpacity(fade.v),
-      });
-      this.after(i * 55, () => {
-        const dust = c.worldPosition();
-        dust.y -= W3.cargoH / 2;
-        this.r.particles.emit('dust', dust, 4);
-        audio.pickup();
-      });
-    });
-    this.refreshBoard();
-    this.hud.setRemaining(0, this.level.packages.length);
   }
 
   private advanceWave() {
     const run = this.run;
     if (!run || this.advancing) return;
     this.advancing = true;
+    this.offAdvanceTap?.();
     this.waveCard?.dismiss();
-    run.wave++;
+    nextWave(run);
     this.goto((c) => gameScreen(c, { run }));
   }
 
@@ -976,19 +594,23 @@ class GameController implements Screen {
   // Menus
   // ==========================================================================
 
+  /** Opening a panel mid-drag puts the package back; the rules clocks stop while it is open. */
+  private suspendPlay(): boolean {
+    if (this.session.phase !== 'play') return false;
+    this.interaction.cancel();
+    this.session.pause();
+    return true;
+  }
+
   private openLegend() {
-    if (this.phase !== 'play') return;
-    this.onPointerCancel();
-    this.phase = 'paused';
+    if (!this.suspendPlay()) return;
     new LegendPanel(() => {
-      this.phase = 'play';
+      this.session.resume();
     });
   }
 
   private openPause() {
-    if (this.phase !== 'play') return;
-    this.onPointerCancel();
-    this.phase = 'paused';
+    if (!this.suspendPlay()) return;
     new PausePanel({
       soundOn: progress.soundOn,
       hapticsOn: progress.hapticsOn,
@@ -1003,7 +625,7 @@ class GameController implements Screen {
         return on;
       },
       onResume: () => {
-        this.phase = 'play';
+        this.session.resume();
       },
       restartLabel: this.run ? 'END RUN' : 'RESTART LEVEL',
       exitLabel: this.run ? 'MAIN MENU' : 'LEVEL SELECT',

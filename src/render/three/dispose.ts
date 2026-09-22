@@ -27,13 +27,14 @@ export function disposeMaterial(m: THREE.Material, includeShared = false) {
 /**
  * Detaches `root` and frees what it holds: geometries, non-shared materials
  * and their textures, and light shadow maps. Sprites share one geometry
- * across the whole library, so theirs is left alone.
+ * across the whole library, so theirs is only freed with `includeShared`
+ * (stage teardown).
  */
 export function disposeTree(root: THREE.Object3D, includeShared = false) {
   root.removeFromParent();
   root.traverse((o) => {
     const mesh = o as THREE.Mesh;
-    if (mesh.geometry && !(o as THREE.Sprite).isSprite) mesh.geometry.dispose();
+    if (mesh.geometry && (includeShared || !(o as THREE.Sprite).isSprite)) mesh.geometry.dispose();
     const mat = mesh.material as THREE.Material | THREE.Material[] | undefined;
     if (mat) for (const m of Array.isArray(mat) ? mat : [mat]) disposeMaterial(m, includeShared);
     if ((o as THREE.Light).isLight) (o as THREE.Light).dispose();

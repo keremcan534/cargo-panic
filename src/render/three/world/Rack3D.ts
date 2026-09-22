@@ -9,7 +9,7 @@ import { MAX_TILT_DEG, W3 } from '../../../game/config';
 import type { LevelDef, PackageType } from '../../../game/levels/types';
 import { MAT } from '../Materials';
 import { disposeTree } from '../dispose';
-import { rackHalfWidth, rackTopY } from '../../layout';
+import { nearestShelf, rackHalfWidth, rackTopY } from '../../layout';
 import { Easing } from '../../Tween';
 import type { Tweens } from '../../Tween';
 import type { Cargo3D } from './Cargo3D';
@@ -32,6 +32,8 @@ export class Rack3D {
   readonly topY: number;
 
   private ghost: THREE.Mesh;
+  /** Faint outline of a held package's committed slot. */
+  private home = new THREE.Group();
   private columns = new THREE.Group();
   /** One material for every crush band; only its opacity changes. */
   private columnMat = MAT.crushBand.clone();
@@ -42,7 +44,7 @@ export class Rack3D {
 
   constructor(
     private tweens: Tweens,
-    level: LevelDef,
+    private level: LevelDef,
     parent: THREE.Object3D,
   ) {
     const maxSlots = Math.max(...level.shelves.map((s) => s.slots));
@@ -91,7 +93,15 @@ export class Rack3D {
     this.ghost = new THREE.Mesh(new THREE.BoxGeometry(1, W3.cargoH, W3.cargoD), MAT.ghostOk);
     this.ghost.visible = false;
     this.ghost.renderOrder = 7;
-    this.group.add(this.ghost, this.columns);
+
+    const homeBox = new THREE.BoxGeometry(1, W3.cargoH, W3.cargoD);
+    const homeFill = new THREE.Mesh(homeBox, MAT.homeFill);
+    const homeEdge = new THREE.LineSegments(new THREE.EdgesGeometry(homeBox), MAT.homeEdge);
+    homeFill.renderOrder = 6;
+    homeEdge.renderOrder = 6;
+    this.home.add(homeFill, homeEdge);
+    this.home.visible = false;
+    this.group.add(this.ghost, this.home, this.columns);
 
     parent.add(this.group);
   }
@@ -106,19 +116,9 @@ export class Rack3D {
     return this.group.localToWorld(out.copy(local));
   }
 
-  /** Nearest tier to a rack-local point, or -1 when far outside the rack. */
+  /** Nearest tier to a rack-local point, or -1 when far outside the rack (shared hit-test). */
   nearestShelf(localX: number, localY: number): number {
-    let best = -1;
-    let bestDist = Infinity;
-    for (const s of this.shelves) {
-      if (Math.abs(localX) > s.width / 2 + W3.slot * 0.75) continue;
-      const d = Math.abs(localY - s.cargoCentreY);
-      if (d < bestDist) {
-        bestDist = d;
-        best = s.tier;
-      }
-    }
-    return bestDist <= W3.tier * 0.72 ? best : -1;
+    return nearestShelf(this.level, localX, localY);
   }
 
   /** Re-parents cargo into the rack keeping its world transform. */
@@ -145,6 +145,19 @@ export class Rack3D {
 
   hideGhost() {
     this.ghost.visible = false;
+  }
+
+  /** Marks the slot a held package still occupies in the rules. */
+  showHome(tier: number, slot: number, slots: number) {
+    const s = this.shelves[tier];
+    if (!s) return this.hideHome();
+    this.home.scale.set(slots * W3.slot - W3.cargoGap, 1, 1);
+    this.home.position.set(s.slotCentreX(slot, slots), s.cargoCentreY, 0.02);
+    this.home.visible = true;
+  }
+
+  hideHome() {
+    this.home.visible = false;
   }
 
   /** Vertical "no heavy cargo" bands above every stowed fragile crate. */
@@ -220,6 +233,8 @@ export class Rack3D {
    * the rack belongs to its owner, which must dispose it first.
    */
   dispose() {
+    this.tweens.kill(this.group.scale);
+    this.tweens.kill(this.group.rotation);
     for (const s of this.shelves) s.dispose();
     disposeTree(this.group);
   }

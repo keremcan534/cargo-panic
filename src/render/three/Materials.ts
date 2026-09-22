@@ -6,7 +6,7 @@
  *
  * Ownership: `MAT` and the per-type cargo materials (with their textures) are
  * shared by every view and belong to the stage - views never dispose them
- * (`isShared`), the stage frees them once in `disposeShared`. Every other
+ * (`isShared`), the stage frees them once in `releaseSharedMaterials`. Every other
  * factory here returns a fresh texture the caller owns.
  */
 
@@ -134,9 +134,11 @@ export const MAT = {
   ghostWarn: new THREE.MeshBasicMaterial({ color: 0xf5c451, transparent: true, opacity: 0.24, depthWrite: false }),
   ghostBad: new THREE.MeshBasicMaterial({ color: 0xff5f57, transparent: true, opacity: 0.24, depthWrite: false }),
   overloadGlow: new THREE.MeshBasicMaterial({ color: 0xff5f57, transparent: true, opacity: 0.0, depthWrite: false }),
+  homeFill: new THREE.MeshBasicMaterial({ color: 0xcfe3ff, transparent: true, opacity: 0.07, depthWrite: false }),
+  homeEdge: new THREE.LineBasicMaterial({ color: 0xcfe3ff, transparent: true, opacity: 0.45, depthWrite: false }),
 } as const;
 
-const sharedMat = new Set<THREE.Material>(Object.values(MAT));
+const sharedMat = new Set<THREE.Material>(Object.values(MAT) as THREE.Material[]);
 
 /** True for materials and textures the stage owns; views must not dispose these. */
 export function isShared(x: THREE.Material | THREE.Texture): boolean {
@@ -148,7 +150,7 @@ export function isShared(x: THREE.Material | THREE.Texture): boolean {
  * teardown. `MAT` objects stay usable (a later renderer re-uploads them); the
  * cargo cache is emptied so it is rebuilt on demand.
  */
-export function disposeShared() {
+export function releaseSharedMaterials() {
   for (const m of sharedMat) m.dispose();
   for (const x of sharedCargo) x.dispose();
   sharedCargo.clear();

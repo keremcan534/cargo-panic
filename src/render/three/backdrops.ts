@@ -34,10 +34,11 @@ const HERO_CARGO: [PackageType, number, number][] = [
 
 /** Title screen: a lit hero rack swaying gently in the warehouse. */
 export function menuBackdrop(stage: ThreeStage): Backdrop {
-  stage.frame(2, 6);
   // The hero rack sits a little lower so the wordmark has the top third.
-  stage.camera.position.y += 0.4;
-  stage.camera.lookAt(0, 0.7, 0);
+  stage.frame(2, 6, (camera) => {
+    camera.position.y += 0.4;
+    camera.lookAt(0, 0.7, 0);
+  });
 
   const rack = new Rack3D(stage.tweens, HERO, stage.scene);
   const warehouse = new Warehouse({ rackHalfWidth: rack.halfWidth });
