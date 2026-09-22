@@ -19,6 +19,9 @@ export class FrameLoop {
   private handle = 0;
   private last = 0;
   private running = false;
+  /** The page was hidden since the last frame: that gap is never charged. */
+  private skipGap = false;
+  private watching = false;
   stage: Stage | null = null;
 
   start() {
@@ -26,6 +29,21 @@ export class FrameLoop {
     this.running = true;
     this.last = performance.now();
     this.handle = requestAnimationFrame(this.frame);
+    this.watchVisibility();
+  }
+
+  /**
+   * Time spent hidden (tab switch, screen lock, app in the background) is
+   * never charged to the rules clocks, whichever of the first frame or the
+   * 'visible' event arrives first.
+   */
+  private watchVisibility() {
+    if (this.watching || typeof document === 'undefined') return;
+    this.watching = true;
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') this.skipGap = true;
+      else this.resync();
+    });
   }
 
   /** Forget the last frame time (after the page was hidden) so no gap is charged. */
@@ -54,8 +72,12 @@ export class FrameLoop {
   private frame = (now: number) => {
     if (!this.running) return;
     this.handle = requestAnimationFrame(this.frame);
-    const raw = Math.max(0, now - this.last);
+    let raw = Math.max(0, now - this.last);
     this.last = now;
+    if (this.skipGap) {
+      this.skipGap = false;
+      raw = 0;
+    }
     const anim = Math.min(MAX_STEP_MS, raw);
     const real = Math.min(MAX_FRAME_CATCHUP_MS, raw);
     this.frames++;

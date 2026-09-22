@@ -93,3 +93,35 @@ test('a fragile hazard fails after the same real time at 60, 12 and 8 fps', () =
     assert.ok(Math.abs(t - GRACE_MS.fragile) <= frame, `${frame.toFixed(1)} ms frames failed at ${t.toFixed(0)} ms`);
   }
 });
+
+test('time spent hidden is never charged, whichever arrives first: the frame or the visible event', () => {
+  const doc = new EventTarget() as EventTarget & { visibilityState: string };
+  doc.visibilityState = 'visible';
+  const g2 = globalThis as unknown as { document?: unknown };
+  const prevDoc = g2.document;
+  g2.document = doc;
+  try {
+    withFakeRaf((step) => {
+      const perf = globalThis.performance;
+      const loop = new FrameLoop();
+      const real: number[] = [];
+      loop.onFrame((_a, r) => real.push(r));
+      const t0 = perf.now();
+      loop.start();
+      step(t0 + 16);
+      doc.visibilityState = 'hidden';
+      doc.dispatchEvent(new Event('visibilitychange'));
+      // rAF resumes before the 'visible' event: the gap is still not charged.
+      step(t0 + 10_016);
+      doc.visibilityState = 'visible';
+      doc.dispatchEvent(new Event('visibilitychange'));
+      step(perf.now() + 16);
+      loop.stop();
+      assert.equal(Math.round(real[0]), 16);
+      assert.equal(real[1], 0, 'the frame after a hidden period charges nothing');
+      assert.ok(real[2] <= 17, `after resync only a normal frame is charged (${real[2]})`);
+    });
+  } finally {
+    g2.document = prevDoc;
+  }
+});
