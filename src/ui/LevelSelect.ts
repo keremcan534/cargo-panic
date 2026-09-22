@@ -84,6 +84,9 @@ export function levelSelectScreen(ctx: AppContext): Screen {
       backdrop = undefined;
       root.remove();
     },
+    languageChanged() {
+      ctx.router.go(levelSelectScreen);
+    },
     detachStage() {
       backdrop?.dispose();
       backdrop = undefined;

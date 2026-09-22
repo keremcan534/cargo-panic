@@ -149,6 +149,10 @@ export const en = {
   'settings.on': 'ON',
   'settings.off': 'OFF',
   'settings.language': 'LANGUAGE',
+  'settings.languageSystem': 'SYSTEM',
+  // Language names are written in their own language, in both dictionaries.
+  'settings.languageEn': 'ENGLISH',
+  'settings.languageTr': 'TÜRKÇE',
   'settings.sound': 'SOUND',
   'settings.vibration': 'VIBRATION',
   'settings.close': 'DONE',

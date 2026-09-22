@@ -46,6 +46,14 @@ class Modal {
     }, 190);
   }
 
+  /** Gone at once, with no callback (the screen is being rebuilt, e.g. in another language). */
+  dismissNow() {
+    if (this.closing) return;
+    this.closing = true;
+    for (const fn of this.cleanups.splice(0)) fn();
+    this.root.remove();
+  }
+
   protected kicker(t: string) {
     this.card.append(el('div', { class: 'kicker', text: t }));
   }
@@ -249,7 +257,8 @@ export class PausePanel extends Modal {
     const exit = btn(opts.exitLabel, () => idle() && this.close(opts.onExit), 'ghost');
     exit.dataset.role = 'exit';
     this.locked = [resume, restart, exit];
-    this.actions(resume, toggleRow(opts, toggleLabels()), restart, exit);
+    for (const b of [restart, exit]) b.className = `btn ${b === exit ? 'ghost' : 'secondary'} md half`;
+    this.actions(resume, toggleRow(opts, toggleLabels()), el('div', { class: 'row leave' }, [restart, exit]));
     this.setBusy(!idle());
   }
 
@@ -260,7 +269,7 @@ export class PausePanel extends Modal {
   }
 }
 
-/** The main menu's settings: view, 3D quality, sound and vibration. */
+/** The main menu's settings: view, 3D quality, motion, language, sound, vibration, tutorial. */
 export class SettingsPanel extends Modal {
   constructor(opts: {
     view: ViewControls;
@@ -268,6 +277,9 @@ export class SettingsPanel extends Modal {
     hapticsOn: boolean;
     onToggleSound: () => boolean;
     onToggleHaptics: () => boolean;
+    onReplayTutorial: () => void;
+    /** The tutorial was skipped or partly done, so there is something to replay. */
+    tutorialReplayable: boolean;
     onClose: () => void;
   }) {
     super();
@@ -276,9 +288,15 @@ export class SettingsPanel extends Modal {
     const section = viewSection(opts.view);
     this.card.append(section.el);
     this.cleanups.push(section.dispose);
+    const replay = btn(t('settings.tutorial'), () => {
+      opts.onReplayTutorial();
+      replay.disabled = true;
+    }, 'secondary', 'sm');
+    replay.dataset.role = 'replay-tutorial';
+    replay.disabled = !opts.tutorialReplayable;
     const done = btn(t('settings.close'), () => this.close(opts.onClose), 'primary', 'lg');
     done.dataset.role = 'close-settings';
-    this.actions(toggleRow(opts, toggleLabels()), done);
+    this.actions(toggleRow(opts, toggleLabels()), replay, done);
   }
 }
 

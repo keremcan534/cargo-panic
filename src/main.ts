@@ -16,25 +16,15 @@ import { StageHost } from './app/StageHost';
 import { audio } from './game/systems/AudioManager';
 import { progress } from './game/systems/ProgressManager';
 import { t } from './i18n';
+import { applyLanguage, effectiveReducedMotion } from './app/Preferences';
 import type { RenderMode } from './render/GameView';
 import type { StageOptions } from './render/Stage';
 import type { ThreeStage } from './render/three/ThreeStage';
 import { showNotice } from './ui/Notice';
 import { splashScreen } from './ui/Splash';
 
-/** The saved reduced-motion choice, or the system setting when there is none. */
-function reducedMotion(): boolean {
-  const saved = progress.settings.reducedMotion;
-  if (saved !== null) return saved;
-  try {
-    return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  } catch {
-    return false;
-  }
-}
-
 function stageOptions(): StageOptions {
-  return { reducedMotion: reducedMotion(), quality: progress.settings.quality };
+  return { reducedMotion: effectiveReducedMotion(), quality: progress.settings.quality };
 }
 
 function debugHooksEnabled(): boolean {
@@ -66,6 +56,8 @@ declare global {
 }
 
 async function boot() {
+  // The text language (saved choice, else the device's) before anything is drawn.
+  applyLanguage();
   const root = document.getElementById('game-root') as HTMLElement;
   const loop = new FrameLoop();
   const host = new StageHost(loop, root, stageOptions);

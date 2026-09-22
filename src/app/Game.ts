@@ -148,6 +148,8 @@ class GameController implements Screen {
   private controls!: HTMLElement;
   private controlsText!: HTMLElement;
   private undoBtn!: HTMLButtonElement;
+  private hintBtn!: HTMLButtonElement;
+  private helpBtn!: HTMLButtonElement;
   private beltZone!: HTMLElement;
   private dangerEl!: HTMLElement;
 
@@ -222,6 +224,7 @@ class GameController implements Screen {
 
     const hint = btn(t('hud.hint'), () => this.onHint(), 'gold', 'sm');
     hint.dataset.role = 'hint';
+    this.hintBtn = hint;
     // Stays clickable when unavailable (aria-disabled, not disabled) so a press can say why.
     this.undoBtn = btn(t('hud.undo'), () => this.onUndo(), 'secondary', 'sm', 'undo');
     this.undoBtn.dataset.role = 'undo';
@@ -229,6 +232,7 @@ class GameController implements Screen {
     this.controlsText.dataset.role = 'controls-text';
     const help = iconBtn('help', () => this.openLegend(), t('hud.guide'));
     help.classList.add('help');
+    this.helpBtn = help;
     this.controls = el('div', { class: 'controls' }, [help, this.controlsText, this.undoBtn, hint]);
     this.beltZone = el('div', { class: 'belt-zone' }, [el('span', { text: t('hud.beltZone') })]);
     this.dangerEl = el('div', { id: 'danger' });
@@ -331,6 +335,32 @@ class GameController implements Screen {
   stageLost() {
     this.interaction.cancel();
     this.pauses.add('context-lost');
+  }
+
+  /**
+   * The language changed (from the pause panel): the HUD, meter and controls
+   * switch now; the pause panel is rebuilt in place, still paused. The
+   * shelf plaques in the view pick it up on the next level.
+   */
+  languageChanged() {
+    const run = this.run;
+    this.hud.setTitle(run ? t('hud.wave', { n: run.wave }) : t('hud.level', { n: this.level.id }));
+    if (!run) this.hud.setSubtitle(levelText(this.level.id, 'name', this.level.name));
+    this.hud.relabel();
+    this.meter.relabel();
+    this.refreshUi();
+    this.showControlsText(this.interaction.selection !== null);
+    this.undoBtn.textContent = t('hud.undo');
+    this.hintBtn.textContent = t('hud.hint');
+    this.helpBtn.title = t('hud.guide');
+    this.helpBtn.setAttribute('aria-label', t('hud.guide'));
+    const belt = this.beltZone.querySelector('span');
+    if (belt) belt.textContent = t('hud.beltZone');
+    if (this.pausePanel) {
+      this.pausePanel.dismissNow();
+      this.pausePanel = null;
+      this.openPause();
+    }
   }
 
   stageRestored() {

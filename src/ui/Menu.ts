@@ -47,7 +47,12 @@ function endlessCaptions(): HTMLElement[] {
   return out;
 }
 
-export function menuScreen(ctx: AppContext): Screen {
+export interface MenuOptions {
+  /** Open the settings panel right away (re-entering after a language change). */
+  settings?: boolean;
+}
+
+export function menuScreen(ctx: AppContext, opts: MenuOptions = {}): Screen {
   let root: HTMLElement;
   let backdrop: Backdrop | undefined;
   let settings: SettingsPanel | null = null;
@@ -85,10 +90,8 @@ export function menuScreen(ctx: AppContext): Screen {
       };
       showMode();
       settingsBtn.addEventListener('pointerdown', () => audio.unlock());
-      settingsBtn.addEventListener('click', () => {
+      const openSettings = () => {
         if (settings) return;
-        audio.click();
-        haptics.tap();
         settings = new SettingsPanel({
           view: viewControls(ctx),
           soundOn: progress.soundOn,
@@ -104,10 +107,18 @@ export function menuScreen(ctx: AppContext): Screen {
             haptics.setEnabled(on);
             return on;
           },
+          onReplayTutorial: () => progress.setTutorialSkipped(false),
+          tutorialReplayable: progress.tutorial.skipped || progress.tutorial.done.length > 0,
           onClose: () => {
             settings = null;
           },
         });
+      };
+      settingsBtn.addEventListener('click', () => {
+        if (settings) return;
+        audio.click();
+        haptics.tap();
+        openSettings();
       });
       offHost = ctx.host.onEvent(showMode);
 
@@ -143,13 +154,21 @@ export function menuScreen(ctx: AppContext): Screen {
         ]),
       ]);
       uiRoot().append(root);
+      if (opts.settings) openSettings();
       fadeIn();
     },
     exit() {
       offHost?.();
+      settings?.dismissNow();
+      settings = null;
       backdrop?.dispose();
       backdrop = undefined;
       root.remove();
+    },
+    /** Rebuilt in the new language, with the settings panel (where the language was picked) open. */
+    languageChanged() {
+      const reopen = settings !== null;
+      ctx.router.go((c) => menuScreen(c, { settings: reopen }));
     },
     detachStage() {
       backdrop?.dispose();

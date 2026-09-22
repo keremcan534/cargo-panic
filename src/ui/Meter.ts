@@ -17,6 +17,8 @@ export class Meter {
   private ghost: HTMLElement;
   private fill: HTMLElement;
   private track: HTMLElement;
+  private label: HTMLElement;
+  private last = { net: 0, left: 0, right: 0 };
 
   private tolerance: number;
   private displayNet = 0;
@@ -44,7 +46,7 @@ export class Meter {
     ]);
 
     this.el = el('div', { class: 'meter' }, [
-      el('div', { class: 'row' }, [el('div', { class: 'label', text: t('meter.label') }), this.delta]),
+      el('div', { class: 'row' }, [(this.label = el('div', { class: 'label', text: t('meter.label') })), this.delta]),
       this.track,
       el('div', { class: 'lr' }, [this.left, this.right]),
     ]);
@@ -67,7 +69,14 @@ export class Meter {
     this.ghost.classList.remove('on');
   }
 
+  /** Re-reads the labels after a language change. */
+  relabel() {
+    this.label.textContent = t('meter.label');
+    this.setValue(this.last.net, this.last.left, this.last.right, this.status);
+  }
+
   setValue(net: number, leftTorque: number, rightTorque: number, status: BalanceStatus) {
+    this.last = { net, left: leftTorque, right: rightTorque };
     this.targetNet = net;
     const imbalance = Math.abs(net);
     this.delta.textContent = `${fmt(imbalance)} / ${fmt(this.tolerance)}`;

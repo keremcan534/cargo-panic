@@ -1,15 +1,18 @@
 /**
- * The VIEW (2D | 3D) and 3D QUALITY (AUTO | LOW | HIGH) controls, shared by
- * the pause panel and the main menu's settings panel.
+ * The settings rows shared by the pause panel and the main menu's settings
+ * panel: VIEW (2D | 3D), 3D QUALITY (AUTO | LOW | HIGH), REDUCED MOTION
+ * (SYSTEM | ON | OFF) and LANGUAGE (SYSTEM | ENGLISH | TÜRKÇE).
  *
  * The section shows the renderer actually drawing (which can be 2D while the
  * stored preference is 3D, when 3D could not start), hides the quality row
- * in 2D, and disables itself while a switch is running. Picking a view goes
- * through App.switchRenderMode and is stored as the player's preference.
+ * in 2D, and disables the view rows while a switch is running. Picking a
+ * view goes through App.switchRenderMode and is stored as the player's
+ * preference; motion and language go through the App too and apply at once.
  */
 
 import type { AppContext } from '../app/Router';
 import type { HostEvent } from '../app/StageHost';
+import type { LanguagePref } from '../game/save/schema';
 import { progress } from '../game/systems/ProgressManager';
 import { t } from '../i18n';
 import type { TextKey } from '../i18n';
@@ -27,6 +30,12 @@ export interface ViewControls {
   busy(): boolean;
   pickView(mode: RenderMode): void;
   pickQuality(q: QualityPref): void;
+  /** Saved reduced-motion choice: null follows the system. */
+  motion(): boolean | null;
+  pickMotion(on: boolean | null): void;
+  /** Saved language: null follows the device. */
+  language(): LanguagePref | null;
+  pickLanguage(lang: LanguagePref | null): void;
   /** Called on every host change (busy, switched); returns the unsubscribe function. */
   subscribe(cb: (e: HostEvent) => void): () => void;
 }
@@ -38,6 +47,10 @@ export function viewControls(ctx: AppContext): ViewControls {
     busy: () => ctx.host.busy,
     pickView: (mode) => void ctx.app.switchRenderMode(mode, { persist: true }),
     pickQuality: (q) => ctx.app.setQuality(q),
+    motion: () => progress.settings.reducedMotion,
+    pickMotion: (on) => ctx.app.setReducedMotion(on),
+    language: () => progress.settings.language,
+    pickLanguage: (lang) => ctx.app.setLanguage(lang),
     subscribe: (cb) => ctx.host.onEvent(cb),
   };
 }
@@ -46,6 +59,25 @@ interface Option<T extends string> {
   value: T;
   label: TextKey;
 }
+
+type MotionValue = 'system' | 'on' | 'off';
+type LanguageValue = 'system' | LanguagePref;
+
+const MOTIONS: Option<MotionValue>[] = [
+  { value: 'system', label: 'settings.motionSystem' },
+  { value: 'on', label: 'settings.on' },
+  { value: 'off', label: 'settings.off' },
+];
+
+/** Language names are written in their own language. */
+const LANGUAGES: Option<LanguageValue>[] = [
+  { value: 'system', label: 'settings.languageSystem' },
+  { value: 'en', label: 'settings.languageEn' },
+  { value: 'tr', label: 'settings.languageTr' },
+];
+
+const motionValue = (v: boolean | null): MotionValue => (v === null ? 'system' : v ? 'on' : 'off');
+const motionPref = (v: MotionValue): boolean | null => (v === 'system' ? null : v === 'on');
 
 const VIEWS: Option<RenderMode>[] = [
   { value: '2d', label: 'settings.view2d' },
@@ -108,11 +140,26 @@ export function viewSection(c: ViewControls, opts: { note?: boolean } = {}): Vie
   });
   view.row.setAttribute('aria-label', t('settings.view'));
   quality.row.setAttribute('aria-label', t('settings.quality'));
-  const qualityRow = el('div', { class: 'setting' }, [el('div', { class: 'label', text: t('settings.quality') }), quality.row]);
+  const motion = segmented('motion', MOTIONS, (v) => {
+    c.pickMotion(motionPref(v));
+    refresh();
+  });
+  const language = segmented('language', LANGUAGES, (v) => {
+    // May re-render the whole screen in the new language (this section included).
+    c.pickLanguage(v === 'system' ? null : v);
+    refresh();
+  });
+  motion.row.setAttribute('aria-label', t('settings.motion'));
+  language.row.setAttribute('aria-label', t('settings.language'));
+  const row = (label: string, control: HTMLElement) =>
+    el('div', { class: 'setting' }, [el('div', { class: 'label', text: label }), control]);
+  const qualityRow = row(t('settings.quality'), quality.row);
   const root = el('div', { class: 'view-settings' }, [
-    el('div', { class: 'setting' }, [el('div', { class: 'label', text: t('settings.view') }), view.row]),
+    row(t('settings.view'), view.row),
     qualityRow,
     opts.note ? el('div', { class: 'setting-note', text: t('settings.viewNote') }) : null,
+    row(t('settings.motion'), motion.row),
+    row(t('settings.language'), language.row),
   ]);
 
   function refresh() {
@@ -120,6 +167,8 @@ export function viewSection(c: ViewControls, opts: { note?: boolean } = {}): Vie
     const mode = c.mode();
     view.set(mode, busy);
     quality.set(c.quality(), busy);
+    motion.set(motionValue(c.motion()), false);
+    language.set(c.language() ?? 'system', false);
     qualityRow.hidden = mode !== '3d';
     root.classList.toggle('busy', busy);
   }
