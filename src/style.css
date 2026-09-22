@@ -326,14 +326,14 @@ html, body {
 .notice.out { opacity: 0; transform: translate(-50%, 12px); }
 
 .suggest {
-  position: absolute; left: 50%; bottom: calc(86px + var(--safe-bottom)); transform: translate(-50%, 16px);
+  position: absolute; left: 50%; top: calc(10px + var(--safe-top)); transform: translate(-50%, -16px);
   width: min(90vw, 520px); z-index: 5; opacity: 0;
   background: rgba(21,29,41,.97); border: 2px solid var(--accent); border-radius: 18px; padding: 12px 14px;
   display: flex; flex-direction: column; gap: 10px; box-shadow: 0 6px 0 rgba(0,0,0,.45);
   transition: opacity 200ms ease, transform 200ms ease;
 }
 .suggest.on { opacity: 1; transform: translate(-50%, 0); }
-.suggest.out { opacity: 0; transform: translate(-50%, 12px); }
+.suggest.out { opacity: 0; transform: translate(-50%, -12px); }
 .suggest .text { font-size: clamp(.85rem, 3.6vw, 1.05rem); line-height: 1.35; text-align: center; color: var(--text); }
 .suggest .row { display: flex; gap: 10px; justify-content: center; }
 .suggest .btn.sm { flex: 1; height: 48px; font-size: clamp(.85rem, 3.6vw, 1.05rem); }
