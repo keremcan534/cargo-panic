@@ -46,6 +46,8 @@ interface AppProbe {
   readonly struggling: boolean;
   /** 3D quality in force, or null in 2D. */
   readonly quality: ThreeStage['quality'] | null;
+  /** Reduced motion as the live stage has it (null mid-switch). */
+  readonly reducedMotion: boolean | null;
 }
 
 declare global {
@@ -105,6 +107,10 @@ async function boot() {
       get quality() {
         const stage = host.stageOrNull;
         return stage?.mode === '3d' ? (stage as ThreeStage).quality : null;
+      },
+      get reducedMotion() {
+        const stage = host.stageOrNull as { reducedMotion?: boolean } | null;
+        return stage?.reducedMotion ?? null;
       },
     });
     // GPU resource counts, to catch leaks across screens (3D only; 2D reports the mode and frames).

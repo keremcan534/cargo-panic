@@ -493,7 +493,8 @@ export class ThreeGameView implements GameView {
     let at: THREE.Vector3 | null = null;
     if ('shelf' in h) {
       const shelf = this.rack.shelves[h.shelf];
-      if (shelf) at = this.rack.toWorld(new THREE.Vector3(0, shelf.surfaceY + 0.34, W3.plankD / 2));
+      // Above the row of cargo on that shelf, as the 2D view draws it.
+      if (shelf) at = this.rack.toWorld(new THREE.Vector3(0, shelf.surfaceY + W3.cargoH + 0.3, W3.plankD / 2));
     } else {
       const c = this.cargo[h.cargo];
       if (c) at = c.worldPosition().add(new THREE.Vector3(0, W3.cargoH / 2 + 0.34, 0));

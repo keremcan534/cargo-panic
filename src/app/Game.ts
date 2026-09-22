@@ -85,6 +85,8 @@ export interface GameTestHook {
   board(): BoardView;
   /** The drop target currently shown for the package in hand (what a release would commit), or null. */
   aimed(): DropTarget | null;
+  /** The tap-selected package, or null. */
+  selection(): number | null;
   clientPointOf(target: Parameters<GameView['clientPointOf']>[0]): ClientPoint | null;
 }
 
@@ -456,6 +458,7 @@ class GameController implements Screen {
       snapshot: () => this.session.snapshot(),
       board: () => this.boardView(),
       aimed: () => this.interaction.aimed,
+      selection: () => this.interaction.selection,
       clientPointOf: (target) => (this.viewLive ? this.view.clientPointOf(target) : null),
     };
     this.testHook = Object.freeze(hook);

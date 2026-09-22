@@ -50,6 +50,12 @@ export class Tutorial {
   private arrow: HTMLElement;
   private time = 0;
   private shownStep: TutorialStep | null = null;
+  /**
+   * 'place' / 'move' cards sit over the meter band: once the player has
+   * picked something up they have read it, so the card goes for good and
+   * only the pointer stays (the meter is theirs again).
+   */
+  private cardRead = false;
   private gone = false;
 
   constructor(
@@ -102,13 +108,16 @@ export class Tutorial {
     }
     this.root.hidden = false;
     if (step !== this.shownStep) {
+      if (this.shownStep !== null) this.cardRead = false;
       this.shownStep = step;
       this.root.dataset.step = step;
       this.text.textContent =
         step === 'place' ? `${t('tutorial.place')}\n${t('tutorial.placeTap')}` : t(step === 'preview' ? 'tutorial.preview' : 'tutorial.move');
     }
+    if (f.holding && step !== 'preview') this.cardRead = true;
     this.root.classList.toggle('aside', f.hazard);
     this.root.classList.toggle('holding', f.holding);
+    this.root.classList.toggle('read', this.cardRead);
 
     let hand: ClientPoint | null = null;
     let ring: ClientPoint | null = null;
