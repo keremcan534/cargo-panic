@@ -6,7 +6,8 @@ A mobile-first casual puzzle game by **BlackBlue Studios**.
 
 **[Play it here](https://keremcan534.github.io/cargo-panic/)**
 
-Packages arrive on a conveyor. Drag them onto the rack. Every crate pushes the
+Packages arrive on a conveyor. Drag them onto the rack (or tap one, then tap a
+slot). Every crate pushes the
 rack sideways with `weight × distance from the middle × tier multiplier`, and if
 the two sides drift too far apart the whole thing goes over.
 
@@ -75,8 +76,10 @@ imbalance       = |net|
 ```
 
 The meter reads green below half tolerance, yellow up to tolerance, red above
-it. While dragging, a ghost needle previews exactly where the drop will leave
-the rack — the player always sees the consequence before committing.
+it. While a target is shown - under a dragged package, or under the finger
+after tapping a package - a ghost needle previews exactly where that move will
+leave the rack, and a ghost outlines every cell the package would take. The
+player always sees the consequence before committing.
 
 ### Nothing fails instantly
 
@@ -92,8 +95,13 @@ dragged down to the belt to re-queue it.
 | `FRAGILE CARGO DAMAGED` | weight ≥ 4 in the column above a fragile crate | 3.5s |
 
 Genuinely impossible drops (no room, sealed shelf, priority cargo outside its
-gold zone) are refused at drop time with a toast instead, and cost a star tier
-rather than the level.
+gold zone, a long package that does not fully fit) are refused with a toast
+that says why. Nothing changes on the rack and they cost nothing: no star,
+no score, no bonus.
+
+When a level is lost, the panel says what really happened - e.g. "The top
+shelf carried 14 against a rating of 12." - and the rack points at the shelf
+or crates involved. No "so close!" copy.
 
 ### Cargo
 
@@ -110,9 +118,22 @@ never a hidden trap. Each shelf shows its tier multiplier and a live load bar.
 
 ### Stars
 
-- **3** — no rejected drops, no hint, and a finishing imbalance within 40% of the level's limit
-- **2** — cleared cleanly, or cleared with the hint
-- **1** — cleared after three or more rejected drops
+Ruleset 2 (the current one):
+
+- **3** — no hint, and a finishing imbalance within 40% of the level's limit
+- **2** — any other finish, including one where the hint was used
+
+Refused drops never cost a star (they are input slips, not strategy), and the
+undo never caps stars. Stars earned under ruleset 1 are kept; they are never
+lowered.
+
+### Undo
+
+One free undo per shipment (a campaign level or an Endless wave): it takes
+the rack and the belt back to before the last committed move. It does not
+refund a hazard countdown that was already running, cannot be used twice,
+and is marked as help used on the results (Endless: an ASSISTED RUN). The
+level-cleared panel lists the help taken: NONE, HINT, UNDO or HINT + UNDO.
 
 ---
 
@@ -187,8 +208,14 @@ That last row is what keeps the mode escalating after the other knobs bottom
 out, and it costs the solver nothing.
 
 Scoring is per shipment: cargo weight, a wave multiplier, a sliding balance
-bonus, plus bonuses for finishing dead level and for a wave with no rejected
-drops or hints. Best score and best wave are saved locally.
+bonus, plus bonuses for finishing dead level and for a wave with no help used
+(no hint, no undo). Refused drops cost nothing. Best score and best wave are
+saved locally, per ruleset; a best from an older ruleset is shown apart as
+"previous rules".
+
+When a run ends, RETRY SAME SHIFT replays the same seed from wave 1 (a new
+run, so nothing from the old one is paid again) and NEW SHIFT deals a fresh
+seed.
 
 Waves are deterministic from `(seed, wave)`, so a run is reproducible. The
 results screen shows the run's seed, and `?seed=12345` replays that exact shift.
@@ -249,7 +276,18 @@ rack. The drop slot comes from the dragged box's position in rack-local space,
 so a leaning rack is handled for free. One `pointerdown / move / up` path on the
 canvas serves mouse and touch identically; on touch the package floats 0.9
 world units above the finger so it stays visible. Every button is a DOM element
-with a 52px minimum target.
+with a 48px minimum target.
+
+A press becomes a drag after 8 px of travel (4 px after a 180 ms hold). A
+press released before that is a **tap**: it selects the package (the rack
+does not change). With a package selected, putting a finger on a slot shows
+the target and the balance preview while the finger is down; lifting it there
+commits the move, lifting it elsewhere does nothing. Drag and tap end in the
+same session command and validator (`src/input/InteractionController.ts`), so
+how a package was moved can never change the rules. One finger at a time: a
+second finger cannot steal, aim or drop; a cancelled touch, a lost pointer or
+the app going to the background puts the package back without changing the
+board.
 
 ---
 
@@ -260,6 +298,12 @@ best balance per level, best endless score and wave, sound and vibration
 toggles. Saves written before Endless existed load fine. If storage is unavailable
 (private mode, blocked cookies) the game silently falls back to an in-memory
 save so play is never interrupted.
+
+Settings (main menu gear, and the pause panel): VIEW 2D / 3D, 3D QUALITY,
+REDUCED MOTION (system / on / off: no camera shake, rack wobble or pulsing,
+softer glow, token particles; hazards stay as text, icon and countdown) and
+LANGUAGE (system / English / Türkçe). All text lives in `src/i18n`. Levels 1-3
+carry a short, skippable guide; REPLAY TUTORIAL in settings shows it again.
 
 ---
 
