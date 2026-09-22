@@ -11,14 +11,14 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { applyFraming, CAMERA_FOV } from './Framing';
 import { Particles } from './Particles';
-import { Tweens } from './Tween';
+import { Tweens } from '../Tween';
 
 /** Beyond this the framebuffer costs more than the sharpness is worth. */
 const MAX_DPR = 2;
 
 export type FrameCallback = (dtMs: number) => void;
 
-export class Renderer {
+export class ThreeStage {
   readonly scene = new THREE.Scene();
   readonly camera: THREE.PerspectiveCamera;
   readonly tweens = new Tweens();

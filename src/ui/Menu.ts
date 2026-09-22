@@ -11,9 +11,9 @@ import { audio } from '../game/systems/AudioManager';
 import { progress } from '../game/systems/ProgressManager';
 import { formatScore, newRun, seedFromUrl } from '../game/systems/RunManager';
 import { Easing } from '../render/Tween';
-import { Warehouse } from '../render/Warehouse';
-import { Cargo3D } from '../world/Cargo3D';
-import { Rack3D } from '../world/Rack3D';
+import { Warehouse } from '../render/three/Warehouse';
+import { Cargo3D } from '../render/three/world/Cargo3D';
+import { Rack3D } from '../render/three/world/Rack3D';
 import { levelSelectScreen } from './LevelSelect';
 import { btn, el, fadeIn, fadeOut, iconBtn, setIcon, uiRoot } from './dom';
 

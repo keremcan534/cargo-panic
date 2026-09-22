@@ -4,7 +4,7 @@
  * both down on exit.
  */
 
-import type { Renderer } from '../render/Renderer';
+import type { ThreeStage } from '../render/three/ThreeStage';
 import { uiRoot } from '../ui/dom';
 
 export interface Screen {
@@ -13,7 +13,7 @@ export interface Screen {
 }
 
 export interface AppContext {
-  renderer: Renderer;
+  renderer: ThreeStage;
   router: Router;
 }
 
@@ -23,7 +23,7 @@ export class Router {
   private current: Screen | null = null;
   readonly ctx: AppContext;
 
-  constructor(renderer: Renderer) {
+  constructor(renderer: ThreeStage) {
     this.ctx = { renderer, router: this };
   }
 

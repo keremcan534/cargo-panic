@@ -10,7 +10,7 @@ import { LEVELS, TOTAL_LEVELS } from '../game/levels/levels';
 import { audio } from '../game/systems/AudioManager';
 import { haptics } from '../game/systems/Haptics';
 import { progress } from '../game/systems/ProgressManager';
-import { Warehouse } from '../render/Warehouse';
+import { Warehouse } from '../render/three/Warehouse';
 import { menuScreen } from './Menu';
 import { STAR_SVG, btn, el, fadeIn, fadeOut, iconBtn, uiRoot } from './dom';
 

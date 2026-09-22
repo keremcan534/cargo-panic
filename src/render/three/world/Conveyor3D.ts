@@ -5,8 +5,8 @@
  */
 
 import * as THREE from 'three';
-import { W3 } from '../game/config';
-import { MAT } from '../render/Materials';
+import { W3 } from '../../../game/config';
+import { MAT } from '../Materials';
 
 function beltTexture(): THREE.CanvasTexture {
   const c = document.createElement('canvas');

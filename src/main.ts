@@ -6,11 +6,11 @@
 import './style.css';
 import { Router } from './app/Router';
 import { audio } from './game/systems/AudioManager';
-import { Renderer } from './render/Renderer';
+import { ThreeStage } from './render/three/ThreeStage';
 import { splashScreen } from './ui/Splash';
 
 const root = document.getElementById('game-root') as HTMLElement;
-const renderer = new Renderer(root);
+const renderer = new ThreeStage(root);
 const router = new Router(renderer);
 
 // Retire the pre-render HTML splash now that we can paint.

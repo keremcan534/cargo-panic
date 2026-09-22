@@ -209,7 +209,7 @@ degrees down, so the slot grid stays a flat, readable plane facing the player -
 the puzzle is still "which slot", never "aim in 3D" - but planks have depth,
 cargo has volume, and the belt sits in front of the rack instead of below it.
 
-**Framing is solved, not tuned.** [`frameCamera`](src/render/Framing.ts)
+**Framing is solved, not tuned.** [`frameCamera`](src/render/three/Framing.ts)
 iterates camera distance and height against three screen-space constraints: the
 rack fits the width with a margin, its cap beam stays below the HUD band, and
 the belt's front edge is pinned to the same screen height on every level so the

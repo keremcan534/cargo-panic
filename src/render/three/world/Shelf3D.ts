@@ -4,12 +4,12 @@
  */
 
 import * as THREE from 'three';
-import { TIER_LEVERAGE_STEP, W3 } from '../game/config';
-import { tierLeverage } from '../game/levels/types';
-import type { ShelfDef } from '../game/levels/types';
-import { MAT, drawShelfLabel, priorityTagTexture, sealedTexture } from '../render/Materials';
-import { Easing } from '../render/Tween';
-import type { Tweens } from '../render/Tween';
+import { TIER_LEVERAGE_STEP, W3 } from '../../../game/config';
+import { tierLeverage } from '../../../game/levels/types';
+import type { ShelfDef } from '../../../game/levels/types';
+import { MAT, drawShelfLabel, priorityTagTexture, sealedTexture } from '../Materials';
+import { Easing } from '../../Tween';
+import type { Tweens } from '../../Tween';
 
 export class Shelf3D {
   readonly tier: number;

@@ -5,12 +5,12 @@
  */
 
 import * as THREE from 'three';
-import { MAX_TILT_DEG, W3 } from '../game/config';
-import type { LevelDef } from '../game/levels/types';
-import { MAT } from '../render/Materials';
-import { rackHalfWidth, rackTopY } from '../render/Framing';
-import { Easing } from '../render/Tween';
-import type { Tweens } from '../render/Tween';
+import { MAX_TILT_DEG, W3 } from '../../../game/config';
+import type { LevelDef } from '../../../game/levels/types';
+import { MAT } from '../Materials';
+import { rackHalfWidth, rackTopY } from '../../layout';
+import { Easing } from '../../Tween';
+import type { Tweens } from '../../Tween';
 import type { Cargo3D } from './Cargo3D';
 import { Shelf3D } from './Shelf3D';
 

@@ -13,8 +13,8 @@
  */
 
 import { PerspectiveCamera, Vector3 } from 'three';
-import { W3 } from '../game/config';
-import { FRAME_BAND, rackHalfWidth, rackTopY } from './layout';
+import { W3 } from '../../game/config';
+import { FRAME_BAND, rackHalfWidth, rackTopY } from '../layout';
 
 export { FRAME_BAND, rackHalfWidth, rackTopY };
 

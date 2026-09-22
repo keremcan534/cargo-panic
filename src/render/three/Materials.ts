@@ -6,12 +6,12 @@
  */
 
 import * as THREE from 'three';
-import { PACKAGE_SPECS } from '../game/levels/types';
-import type { PackageType } from '../game/levels/types';
-import { drawCargoFront, drawCargoSide, drawPriorityTag, drawSealedPlaque, roundRect } from './art/cargoArt';
+import { PACKAGE_SPECS } from '../../game/levels/types';
+import type { PackageType } from '../../game/levels/types';
+import { drawCargoFront, drawCargoSide, drawPriorityTag, drawSealedPlaque, roundRect } from '../art/cargoArt';
 
-export { drawShelfLabel } from './art/cargoArt';
-export type { ShelfLabelState } from './art/cargoArt';
+export { drawShelfLabel } from '../art/cargoArt';
+export type { ShelfLabelState } from '../art/cargoArt';
 
 /** Texture bake resolution per world unit. */
 const TEX_PX = 256;

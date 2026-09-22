@@ -27,7 +27,7 @@ import { formatScore, newRun, scoreWave } from '../game/systems/RunManager';
 import type { RunState } from '../game/systems/RunManager';
 import { hintFor } from '../game/systems/Solver';
 import { Easing } from '../render/Tween';
-import { Warehouse } from '../render/Warehouse';
+import { Warehouse } from '../render/three/Warehouse';
 import { Hud } from '../ui/Hud';
 import { levelSelectScreen } from '../ui/LevelSelect';
 import { menuScreen } from '../ui/Menu';
@@ -43,10 +43,10 @@ import {
 } from '../ui/Panels';
 import type { FailReason } from '../ui/Panels';
 import { btn, el, fadeIn, fadeOut, iconBtn, uiRoot } from '../ui/dom';
-import { Cargo3D } from '../world/Cargo3D';
-import { Conveyor3D } from '../world/Conveyor3D';
-import { Rack3D } from '../world/Rack3D';
-import type { GhostKind } from '../world/Rack3D';
+import { Cargo3D } from '../render/three/world/Cargo3D';
+import { Conveyor3D } from '../render/three/world/Conveyor3D';
+import { Rack3D } from '../render/three/world/Rack3D';
+import type { GhostKind } from '../render/three/world/Rack3D';
 
 export interface GameData {
   levelId?: number;
