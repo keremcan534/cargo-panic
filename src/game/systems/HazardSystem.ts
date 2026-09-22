@@ -28,6 +28,15 @@ export interface HazardState {
   expired: boolean;
 }
 
+/** Serializable clock state, for undo, view switches and saved runs. */
+export interface HazardSnapshot {
+  balance: number;
+  /** [tier, ms left] for every overloaded shelf. */
+  overload: [number, number][];
+  /** [package id, ms left] for every crushed fragile crate. */
+  fragile: [number, number][];
+}
+
 const CLEAR: HazardState = {
   kind: null,
   remaining: 0,
@@ -64,6 +73,20 @@ export class HazardSystem {
     this.balance = this.grace.balance;
     this.overload.clear();
     this.fragile.clear();
+  }
+
+  snapshot(): HazardSnapshot {
+    return {
+      balance: this.balance,
+      overload: [...this.overload.entries()],
+      fragile: [...this.fragile.entries()],
+    };
+  }
+
+  restore(s: HazardSnapshot) {
+    this.balance = Math.min(this.grace.balance, s.balance);
+    this.overload = new Map(s.overload);
+    this.fragile = new Map(s.fragile);
   }
 
   /** Advances every clock and reports the one closest to failing. */

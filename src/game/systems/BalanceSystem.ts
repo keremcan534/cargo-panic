@@ -118,6 +118,21 @@ export function evaluate(level: LevelDef, placements: Placement[]): BoardEval {
   };
 }
 
+/** Ids of the heavy packages sitting in the column above a fragile crate. */
+export function crushersAbove(level: LevelDef, placements: Placement[], fragileId: number): number[] {
+  const f = placements.find((p) => p.id === fragileId);
+  if (!f || f.type !== 'fragile') return [];
+  const [fa, fb] = span(level.shelves[f.shelf], f.slot, PACKAGE_SPECS[f.type].slots);
+  const out: number[] = [];
+  for (const h of placements) {
+    if (h.shelf <= f.shelf) continue;
+    if (PACKAGE_SPECS[h.type].weight < CRUSH_WEIGHT) continue;
+    const [ha, hb] = span(level.shelves[h.shelf], h.slot, PACKAGE_SPECS[h.type].slots);
+    if (ha < fb && fa < hb) out.push(h.id);
+  }
+  return out;
+}
+
 export type PlaceRejection =
   | 'locked'
   | 'occupied'

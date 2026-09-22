@@ -20,6 +20,7 @@ const PURE_ENTRIES = [
   'src/game/systems/RunManager.ts',
   'src/game/levels/generator.ts',
   'src/game/levels/levels.ts',
+  'src/game/session/index.ts',
 ];
 
 /** DOM globals a pure module must not touch at load or call time. */
