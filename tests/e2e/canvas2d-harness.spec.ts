@@ -6,8 +6,9 @@
  * to test-results/a2/ at 360x640 and 412x915.
  *
  * This does NOT use the production preview build: it has its own baseURL and
- * starts `npx vite --port 5199` itself (or reuses one already running there),
- * because the harness page is a dev tool that is not part of the build.
+ * starts a vite dev server on HARNESS_PORT (default 5199) itself, and stops
+ * it afterwards; it refuses to reuse a server already on that port. The
+ * harness page is a dev tool that is not part of the build.
  *
  *   npx playwright test -c tests/harness/playwright.config.ts
  * or as part of `npm run test:e2e` (the main config's preview server still
@@ -20,6 +21,7 @@
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
@@ -40,12 +42,18 @@ async function up(): Promise<boolean> {
 
 test.beforeAll(async () => {
   mkdirSync(SHOTS, { recursive: true });
-  if (await up()) return;
-  server = spawn('npx', ['vite', '--port', String(PORT), '--strictPort', '--host', '127.0.0.1'], {
-    cwd: process.cwd(),
-    stdio: 'ignore',
-    detached: false,
-  });
+  // Never reuse a server that is already there: it may be a leftover from
+  // another run or another checkout, serving different code.
+  if (await up()) {
+    throw new Error(`port ${PORT} is already serving; set HARNESS_PORT to a free port`);
+  }
+  // Run vite's own entry (no npx wrapper) in its own process group, so
+  // afterAll can stop it for certain instead of orphaning it.
+  server = spawn(
+    process.execPath,
+    [resolve('node_modules/vite/bin/vite.js'), '--port', String(PORT), '--strictPort', '--host', '127.0.0.1'],
+    { cwd: process.cwd(), stdio: 'ignore', detached: true },
+  );
   const deadline = Date.now() + 60_000;
   while (Date.now() < deadline) {
     if (await up()) return;
@@ -55,8 +63,14 @@ test.beforeAll(async () => {
 });
 
 test.afterAll(() => {
-  server?.kill();
+  const pid = server?.pid;
   server = null;
+  if (!pid) return;
+  try {
+    process.kill(-pid, 'SIGTERM');
+  } catch {
+    /* already gone */
+  }
 });
 
 test.use({ baseURL: ORIGIN });
