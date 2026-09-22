@@ -19,6 +19,7 @@ export class FrameLoop {
   private handle = 0;
   private last = 0;
   private running = false;
+  /** Drawn last each frame. Written only by StageHost (null while a stage is being swapped). */
   stage: Stage | null = null;
 
   start() {

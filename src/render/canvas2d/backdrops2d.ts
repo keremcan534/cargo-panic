@@ -7,8 +7,9 @@
  * a vignette. The play area is the brightest thing on screen.
  *
  * `MenuBackdrop2D` is the title screen's hero rack (HERO_LEVEL / HERO_CARGO
- * from render/hero.ts, the same data the 3D title screen uses), swaying gently; `LevelsBackdrop2D` is the
- * bare warehouse behind the level grid. Both re-frame themselves on resize.
+ * from render/hero.ts, the same data the 3D title screen uses), swaying
+ * gently; `LevelsBackdrop2D` is the bare warehouse behind the level grid.
+ * Both re-frame themselves on resize.
  */
 
 import { W3 } from '../../game/config';
