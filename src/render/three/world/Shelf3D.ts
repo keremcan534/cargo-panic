@@ -8,6 +8,7 @@ import { TIER_LEVERAGE_STEP, W3 } from '../../../game/config';
 import { tierLeverage } from '../../../game/levels/types';
 import type { ShelfDef } from '../../../game/levels/types';
 import { MAT, drawShelfLabel, priorityTagTexture, sealedTexture } from '../Materials';
+import { t } from '../../../i18n';
 import { cargoCentreY, shelfSurfaceY, slotCentreX, slotFromX } from '../../layout';
 import { Easing } from '../../Tween';
 import type { Tweens } from '../../Tween';
@@ -126,7 +127,7 @@ export class Shelf3D {
 
     const plaque = new THREE.Mesh(
       new THREE.PlaneGeometry(this.width, W3.cargoH),
-      new THREE.MeshBasicMaterial({ map: sealedTexture(this.width), transparent: true }),
+      new THREE.MeshBasicMaterial({ map: sealedTexture(this.width, t('shelf.sealed')), transparent: true }),
     );
     plaque.position.set(0, y + W3.cargoH / 2, W3.cargoD / 2 + 0.005);
     plaque.renderOrder = 4;
@@ -153,7 +154,7 @@ export class Shelf3D {
 
     const tag = new THREE.Mesh(
       new THREE.PlaneGeometry(1.6, 0.26),
-      new THREE.MeshBasicMaterial({ map: priorityTagTexture(), transparent: true, depthWrite: false }),
+      new THREE.MeshBasicMaterial({ map: priorityTagTexture(t('shelf.priorityTag')), transparent: true, depthWrite: false }),
     );
     tag.position.set(cx, y + 0.2, W3.cargoD * 0.48 + 0.02);
     tag.renderOrder = 6;

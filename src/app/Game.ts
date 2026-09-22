@@ -38,7 +38,7 @@ import { requestHint } from '../game/systems/HintService';
 import { progress } from '../game/systems/ProgressManager';
 import { formatScore, newRun } from '../game/systems/RunManager';
 import type { RunState } from '../game/systems/RunManager';
-import { t } from '../i18n';
+import { fmt, levelText, t } from '../i18n';
 import { InteractionController } from '../input/InteractionController';
 import type { BoardView, ClientPoint, DropTarget, GameView, RenderMode } from '../render/GameView';
 import type { Stage } from '../render/Stage';
@@ -99,15 +99,19 @@ function testHookEnabled(): boolean {
 function blockText(r: BlockReason): string {
   switch (r.key) {
     case 'overloaded':
-      return 'A SHELF IS OVER ITS LOAD LIMIT';
+      return t('block.overloaded');
     case 'crushed':
-      return 'FRAGILE CARGO IS BEING CRUSHED';
+      return t('block.crushed');
     case 'priority':
-      return 'PRIORITY CARGO MUST SIT IN THE GOLD ZONE';
+      return t('block.priority');
     case 'imbalance':
-      return `IMBALANCE MUST DROP BELOW ${r.limit.toFixed(1)}`;
+      return t('block.imbalance', { limit: fmt(r.limit) });
   }
 }
+
+/** Endless waves that open with a note about what is new. */
+const WAVE_NOTES = [1, 2, 4, 6, 9, 12] as const;
+type WaveNoteKey = `wave.intro.${(typeof WAVE_NOTES)[number]}`;
 
 export function gameScreen(ctx: AppContext, data: GameData): Screen {
   return new GameController(ctx, data);
@@ -181,30 +185,30 @@ class GameController implements Screen {
     this.hud = new Hud(
       this.run
         ? {
-            title: `WAVE ${this.run.wave}`,
+            title: t('hud.wave', { n: this.run.wave }),
             subtitle: formatScore(this.run.score),
             subtitleGold: true,
-            objective: this.level.objective,
+            objective: this.objective(),
             showRestart: false,
           }
         : {
-            title: `LEVEL ${this.level.id}`,
-            subtitle: this.level.name,
-            objective: this.level.objective,
+            title: t('hud.level', { n: this.level.id }),
+            subtitle: levelText(this.level.id, 'name', this.level.name),
+            objective: this.objective(),
             showRestart: true,
           },
       { onRestart: () => this.restartLevel(), onPause: () => this.openPause() },
     );
 
-    const hint = btn('HINT', () => this.onHint(), 'gold', 'sm');
+    const hint = btn(t('hud.hint'), () => this.onHint(), 'gold', 'sm');
     hint.dataset.role = 'hint';
     this.controls = el('div', { class: 'controls' }, [
-      iconBtn('help', () => this.openLegend(), 'Cargo guide'),
-      el('div', { class: 'hint-text', text: 'Drag cargo onto a shelf.\nTap a stowed box to move it.' }),
+      iconBtn('help', () => this.openLegend(), t('hud.guide')),
+      el('div', { class: 'hint-text', text: t('hud.controlsHint') }),
       hint,
     ]);
     this.controls.querySelector('.hint-text')!.setAttribute('style', 'white-space: pre-line');
-    this.beltZone = el('div', { class: 'belt-zone' }, [el('span', { text: 'BACK ON THE BELT' })]);
+    this.beltZone = el('div', { class: 'belt-zone' }, [el('span', { text: t('hud.beltZone') })]);
     this.dangerEl = el('div', { id: 'danger' });
     uiRoot().append(this.dangerEl, this.beltZone, this.controls);
 
@@ -215,7 +219,7 @@ class GameController implements Screen {
       const run = this.run;
       this.after(120, () => prefetchWave(run.seed, run.wave + 1));
     } else if (this.level.tip) {
-      this.tip = new TipCard(this.level.tip);
+      this.tip = new TipCard(levelText(this.level.id, 'tip', this.level.tip));
     }
 
     // The stable root under the canvas: a view switch replaces the canvas, not this.
@@ -235,14 +239,14 @@ class GameController implements Screen {
         preview: (net) => (net === null ? this.meter.hidePreview() : this.meter.showPreview(net)),
         beltHover: (on) => this.beltZone.classList.toggle('on', on),
         rejected: (reason) => {
-          this.hud.toast(reason);
+          this.hud.toast(t(`reject.${reason}` as const));
           audio.invalid();
           haptics.reject();
         },
         placed: () => this.refresh(),
         landed: (id) => this.landingFeedback(id),
         toBelt: () => {
-          this.hud.toast('BACK ON THE BELT', 'info');
+          this.hud.toast(t('toast.backOnBelt'), 'info');
           this.refresh();
         },
       },
@@ -399,7 +403,13 @@ class GameController implements Screen {
     this.meter.setValue(ev.net, ev.leftTorque, ev.rightTorque, ev.status);
     this.hud.setRemaining(s.remaining, this.level.packages.length);
     const blocker = s.blockReason();
-    this.hud.setObjective(blocker ? blockText(blocker) : this.level.objective);
+    this.hud.setObjective(blocker ? blockText(blocker) : this.objective());
+  }
+
+  /** The shipment's objective line: the campaign level's own, or the Endless wave's. */
+  private objective(): string {
+    if (this.run) return t('wave.objective', { n: this.level.packages.length, limit: fmt(this.level.balanceTolerance) });
+    return levelText(this.level.id, 'objective', this.level.objective);
   }
 
   /** Touchdown sound and buzz for a committed placement, by cargo type. */
@@ -486,7 +496,7 @@ class GameController implements Screen {
     // A second finger on HINT mid-drag: the package goes back first (the session refuses hints while one is held).
     this.interaction.cancel();
     if (this.session.queue.length === 0) {
-      this.hud.toast('EVERYTHING IS STOWED - FIX THE BALANCE', 'info');
+      this.hud.toast(t('toast.allStowed'), 'info');
       return;
     }
     requestHint(() => this.applyHint());
@@ -497,12 +507,12 @@ class GameController implements Screen {
     const hint = this.session.hint();
     if (current === null || !hint) return;
     if (hint.kind === 'stuck') {
-      this.hud.toast('NO SOLUTION FROM HERE - TAP RESTART', 'info');
+      this.hud.toast(t('toast.stuck'), 'info');
       return;
     }
     // The view clears it after HINT_MS or when a drag begins (GameView.showHint).
     if (this.viewLive) this.view.showHint(current, { shelf: hint.shelf, slot: hint.slot });
-    if (hint.kind === 'rearrange') this.hud.toast('SOME STOWED CARGO NEEDS MOVING TOO', 'info');
+    if (hint.kind === 'rearrange') this.hud.toast(t('toast.rearrange'), 'info');
   }
 
   private clearHint() {
@@ -667,20 +677,14 @@ class GameController implements Screen {
   private waveIntro(): string {
     const run = this.run;
     if (!run) return '';
-    const notes: Record<number, string> = {
-      1: 'Endless shift. Clear a shipment, the next one is harder.',
-      2: 'Heavy crates from here on.',
-      4: 'Fragile cargo joins the belt.',
-      6: 'Long packages joins the manifest.',
-      9: 'Priority cargo - gold zone only.',
-      12: 'Aisles can be sealed off from now on.',
-    };
-    const note = notes[run.wave];
+    const note = (WAVE_NOTES as readonly number[]).includes(run.wave) ? t(`wave.intro.${run.wave}` as WaveNoteKey) : null;
     const grace = (GRACE_MS.balance * this.graceScale) / 1000;
     const stats =
-      `${this.level.packages.length} packages - ${this.level.shelves.length} tiers - ` +
-      `red line ${this.level.balanceTolerance.toFixed(1)}` +
-      (this.graceScale < 0.99 ? ` - ${grace.toFixed(1)}s to fix a mistake` : '');
+      t('wave.stats', {
+        packages: this.level.packages.length,
+        tiers: this.level.shelves.length,
+        limit: fmt(this.level.balanceTolerance),
+      }) + (this.graceScale < 0.99 ? t('wave.statsGrace', { secs: fmt(grace) }) : '');
     return note ? `${note}\n${stats}` : stats;
   }
 
@@ -704,9 +708,9 @@ class GameController implements Screen {
     this.dispatched = true;
     // The rack is empty now: the readouts follow.
     this.meter.setValue(0, 0, 0, 'stable');
-    this.hud.setObjective(this.level.objective);
+    this.hud.setObjective(this.objective());
     this.hud.setRemaining(0, this.level.packages.length);
-    this.waveCard = new WaveClearCard(result);
+    this.waveCard = new WaveClearCard(result, run.wave);
 
     // A pending "try 2D?" choice holds the next wave until it is answered.
     const asked = this.offerTwoD(() => this.advanceWave());
@@ -775,8 +779,8 @@ class GameController implements Screen {
         closed();
         this.pauses.remove('menu');
       },
-      restartLabel: this.run ? 'END RUN' : 'RESTART LEVEL',
-      exitLabel: this.run ? 'MAIN MENU' : 'LEVEL SELECT',
+      restartLabel: this.run ? t('pause.endRun') : t('pause.restartLevel'),
+      exitLabel: this.run ? t('pause.mainMenu') : t('pause.levelSelect'),
       onRestart: () => {
         closed();
         if (this.run) this.goto(menuScreen);

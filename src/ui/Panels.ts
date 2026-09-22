@@ -1,15 +1,15 @@
 /**
  * Modal overlays: level cleared, level failed, pause, settings, cargo guide,
  * run over - plus the non-blocking wave-clear, coaching and suggestion
- * cards. All DOM.
+ * cards. All DOM; every string comes from the text dictionary (src/i18n).
  */
 
 import { PACKAGE_SPECS } from '../game/levels/types';
 import type { PackageType } from '../game/levels/types';
 import { audio } from '../game/systems/AudioManager';
 import { formatScore, formatSeed } from '../game/systems/RunManager';
-import type { WaveResult } from '../game/systems/RunManager';
-import { t } from '../i18n';
+import type { ScoreLine, WaveResult } from '../game/systems/RunManager';
+import { fmt, t } from '../i18n';
 import { STAR_SVG, btn, el, uiRoot } from './dom';
 import type { BtnStyle } from './dom';
 import { viewSection } from './ViewSettings';
@@ -56,7 +56,9 @@ class Modal {
     this.card.append(el('div', { class: 'body', text: t }));
   }
   protected note(t: string, tone: 'gold' | 'accent' | 'warn' | 'dim' | 'warm') {
-    this.card.append(el('div', { class: `note ${tone}`, text: t }));
+    const n = el('div', { class: `note ${tone}`, text: t });
+    this.card.append(n);
+    return n;
   }
   protected stats(rows: [string, string, string?][]) {
     this.card.append(
@@ -98,8 +100,8 @@ export class WinPanel extends Modal {
     actions: { onNext: () => void; onRetry: () => void; onLevels: () => void },
   ) {
     super();
-    this.kicker('WAREHOUSE');
-    this.headline('SECURED', 'good');
+    this.kicker(t('win.kicker'));
+    this.headline(t('win.headline'), 'good');
 
     const stars = el('div', { class: 'stars' });
     for (let i = 0; i < 3; i++) {
@@ -119,27 +121,27 @@ export class WinPanel extends Modal {
     const accuracy = Math.max(0, Math.round((1 - info.imbalance / Math.max(info.tolerance, 0.001)) * 100));
     const acc = accuracy >= 80 ? 'good' : accuracy >= 55 ? 'warn' : '';
     this.stats([
-      ['BALANCE ACCURACY', `${accuracy}%`, acc],
-      ['FINAL IMBALANCE', info.imbalance.toFixed(2), acc],
-      ['PACKAGES STOWED', `${info.packages} / ${info.packages}`, 'good'],
-      ['REJECTED DROPS', String(info.mistakes), info.mistakes === 0 ? 'good' : 'warn'],
+      [t('win.accuracy'), `${accuracy}%`, acc],
+      [t('win.finalImbalance'), fmt(info.imbalance, 2), acc],
+      [t('win.stowed'), `${info.packages} / ${info.packages}`, 'good'],
+      [t('win.rejected'), String(info.mistakes), info.mistakes === 0 ? 'good' : 'warn'],
     ]);
 
-    if (info.newBest) this.note('NEW PERSONAL BEST', 'gold');
-    else if (info.hintUsed) this.note('HINT USED - MAX 2 STARS', 'dim');
-    else if (info.firstClear && !info.isLastLevel) this.note(`LEVEL ${info.levelId + 1} UNLOCKED`, 'accent');
-    if (info.isLastLevel) this.note('ALL 25 LEVELS CLEARED', 'warm');
+    if (info.newBest) this.note(t('win.newBest'), 'gold');
+    else if (info.hintUsed) this.note(t('win.hintCap'), 'dim');
+    else if (info.firstClear && !info.isLastLevel) this.note(t('win.unlocked', { n: info.levelId + 1 }), 'accent');
+    if (info.isLastLevel) this.note(t('win.allCleared'), 'warm');
 
     const primary = btn(
-      info.isLastLevel ? 'LEVEL SELECT' : 'NEXT LEVEL',
+      info.isLastLevel ? t('win.levelSelect') : t('win.next'),
       () => this.close(info.isLastLevel ? actions.onLevels : actions.onNext),
       'primary',
       'lg',
     );
     primary.dataset.role = 'next';
     const row = el('div', { class: 'row' }, [
-      btn('RETRY', () => this.close(actions.onRetry), 'secondary', 'md', 'half'),
-      btn('LEVELS', () => this.close(actions.onLevels), 'secondary', 'md', 'half'),
+      btn(t('win.retry'), () => this.close(actions.onRetry), 'secondary', 'md', 'half'),
+      btn(t('win.levels'), () => this.close(actions.onLevels), 'secondary', 'md', 'half'),
     ]);
     this.actions(primary, row);
   }
@@ -149,32 +151,19 @@ export class WinPanel extends Modal {
 
 export type FailReason = 'collapse' | 'overload' | 'fragile';
 
-const FAIL_COPY: Record<FailReason, { title: string; body: string }> = {
-  collapse: {
-    title: 'RACK COLLAPSED',
-    body: 'Left and right torque drifted too far apart. Spread the weight evenly - and remember the upper tiers count for more.',
-  },
-  overload: {
-    title: 'SHELF OVERLOADED',
-    body: 'A shelf held more weight than its load rating. Watch the bar under each plank and move cargo down a tier.',
-  },
-  fragile: {
-    title: 'FRAGILE CARGO DAMAGED',
-    body: 'Heavy cargo sat in the column directly above a fragile crate. Keep those marked columns clear.',
-  },
-};
+const failTitle = (r: FailReason) => t(`fail.${r}.title` as const);
+const failBody = (r: FailReason) => t(`fail.${r}.body` as const);
 
 export class FailPanel extends Modal {
   constructor(reason: FailReason, detail: string, actions: { onRetry: () => void; onLevels: () => void }) {
     super();
-    const copy = FAIL_COPY[reason];
-    this.kicker('SHIPMENT LOST');
-    this.headline(copy.title, 'bad');
-    this.body(copy.body);
+    this.kicker(t('fail.kicker'));
+    this.headline(failTitle(reason), 'bad');
+    this.body(failBody(reason));
     if (detail) this.note(detail, 'warn');
-    const retry = btn('RETRY', () => this.close(actions.onRetry), 'primary', 'lg');
+    const retry = btn(t('fail.retry'), () => this.close(actions.onRetry), 'primary', 'lg');
     retry.dataset.role = 'retry';
-    this.actions(retry, btn('LEVEL SELECT', () => this.close(actions.onLevels), 'ghost', 'md'));
+    this.actions(retry, btn(t('fail.levelSelect'), () => this.close(actions.onLevels), 'ghost', 'md'));
   }
 }
 
@@ -201,13 +190,12 @@ interface ToggleLabels {
   vibrationOff: string;
 }
 
-/** The pause panel's existing copy (A3 moves it to the text dictionary). */
-const PAUSE_TOGGLES: ToggleLabels = {
-  soundOn: 'SOUND: ON',
-  soundOff: 'SOUND: OFF',
-  vibrationOn: 'VIBRATION: ON',
-  vibrationOff: 'VIBRATION: OFF',
-};
+const toggleLabels = (): ToggleLabels => ({
+  soundOn: t('pause.soundOn'),
+  soundOff: t('pause.soundOff'),
+  vibrationOn: t('pause.vibrationOn'),
+  vibrationOff: t('pause.vibrationOff'),
+});
 
 /** SOUND / VIBRATION on-off buttons, side by side. */
 function toggleRow(
@@ -236,7 +224,7 @@ export class PausePanel extends Modal {
   constructor(opts: PauseOptions) {
     super();
     this.root.classList.add('pause');
-    this.headline('PAUSED');
+    this.headline(t('pause.title'));
     const view = opts.view;
     const idle = () => !view?.busy();
     if (view) {
@@ -245,14 +233,14 @@ export class PausePanel extends Modal {
       this.cleanups.push(section.dispose);
       this.cleanups.push(view.subscribe(() => this.setBusy(view.busy())));
     }
-    const resume = btn('RESUME', () => idle() && this.close(opts.onResume), 'primary', 'lg');
+    const resume = btn(t('pause.resume'), () => idle() && this.close(opts.onResume), 'primary', 'lg');
     resume.dataset.role = 'resume';
     const restart = btn(opts.restartLabel, () => idle() && this.close(opts.onRestart));
     restart.dataset.role = 'restart';
     const exit = btn(opts.exitLabel, () => idle() && this.close(opts.onExit), 'ghost');
     exit.dataset.role = 'exit';
     this.locked = [resume, restart, exit];
-    this.actions(resume, toggleRow(opts, PAUSE_TOGGLES), restart, exit);
+    this.actions(resume, toggleRow(opts, toggleLabels()), restart, exit);
     this.setBusy(!idle());
   }
 
@@ -281,57 +269,43 @@ export class SettingsPanel extends Modal {
     this.cleanups.push(section.dispose);
     const done = btn(t('settings.close'), () => this.close(opts.onClose), 'primary', 'lg');
     done.dataset.role = 'close-settings';
-    this.actions(
-      toggleRow(opts, {
-        soundOn: t('pause.soundOn'),
-        soundOff: t('pause.soundOff'),
-        vibrationOn: t('pause.vibrationOn'),
-        vibrationOff: t('pause.vibrationOff'),
-      }),
-      done,
-    );
+    this.actions(toggleRow(opts, toggleLabels()), done);
   }
 }
 
 // ---------------------------------------------------------------------------
 
+const CARGO_TYPES: readonly PackageType[] = ['standard', 'heavy', 'fragile', 'long', 'priority'];
+
 export class LegendPanel extends Modal {
   constructor(onClose: () => void) {
     super();
-    this.headline('CARGO GUIDE');
-    const rows: [PackageType, string][] = [
-      ['standard', 'Ordinary carton.'],
-      ['heavy', 'Crushes fragile cargo below it.'],
-      ['fragile', 'Keep the column above it clear.'],
-      ['long', 'Eats three slots.'],
-      ['priority', 'Must finish inside a gold zone.'],
-    ];
+    this.headline(t('guide.title'));
     this.card.append(
       el(
         'div',
         { class: 'legend' },
-        rows.map(([type, note]) => {
+        CARGO_TYPES.map((type) => {
           const spec = PACKAGE_SPECS[type];
           return el('div', { class: 'row' }, [
             el('div', { class: `swatch ${type}` }, [el('b', { text: String(spec.weight) })]),
             el('div', {}, [
-              el('div', { class: 'name', text: `${spec.label}   WEIGHT ${spec.weight}` }),
-              el('div', { class: 'desc', text: note }),
+              el('div', {
+                class: 'name',
+                text: t('guide.row', { label: t(`cargo.${type}.label` as const), weight: spec.weight }),
+              }),
+              el('div', { class: 'desc', text: t(`cargo.${type}.note` as const) }),
             ]),
           ]);
         }),
       ),
     );
     this.card.append(el('div', { class: 'rule' }));
-    this.card.append(el('h3', { class: 'accent', text: 'BALANCE' }));
-    this.body(
-      'Torque = weight x distance from the middle x the tier multiplier shown under each shelf. Higher shelves push harder.',
-    );
-    this.card.append(el('h3', { class: 'bad', text: 'WHEN THE RACK GOES RED' }));
-    this.body(
-      'Too much imbalance, an overloaded shelf, or a crushed fragile crate gives you a few seconds to fix it before the level fails.',
-    );
-    const ok = btn('GOT IT', () => this.close(onClose), 'primary', 'lg');
+    this.card.append(el('h3', { class: 'accent', text: t('guide.balance') }));
+    this.body(t('guide.balanceBody'));
+    this.card.append(el('h3', { class: 'bad', text: t('guide.red') }));
+    this.body(t('guide.redBody'));
+    const ok = btn(t('guide.ok'), () => this.close(onClose), 'primary', 'lg');
     ok.dataset.role = 'close';
     this.actions(ok);
   }
@@ -354,35 +328,51 @@ export interface RunOverInfo {
 export class RunOverPanel extends Modal {
   constructor(info: RunOverInfo, actions: { onRetry: () => void; onMenu: () => void }) {
     super();
-    this.kicker('RUN OVER');
-    this.headline(FAIL_COPY[info.reason].title, 'bad');
+    this.kicker(t('run.kicker'));
+    this.headline(failTitle(info.reason), 'bad');
     this.card.append(el('div', { class: 'big', text: formatScore(info.score) }));
-    this.card.append(el('div', { class: 'note dim', text: 'FINAL SCORE' }));
+    this.card.append(el('div', { class: 'note dim', text: t('run.finalScore') }));
     this.stats([
-      ['WAVES CLEARED', String(Math.max(0, info.wave - 1))],
-      ['PACKAGES STOWED', String(info.stowed)],
-      ['FLAWLESS WAVES', String(info.cleanWaves), info.cleanWaves > 0 ? 'good' : ''],
-      ['BEST SCORE', formatScore(Math.max(info.bestScore, info.score)), info.newBest ? 'gold' : 'dim'],
+      [t('run.wavesCleared'), String(Math.max(0, info.wave - 1))],
+      [t('run.stowed'), String(info.stowed)],
+      [t('run.flawless'), String(info.cleanWaves), info.cleanWaves > 0 ? 'good' : ''],
+      [t('run.best'), formatScore(Math.max(info.bestScore, info.score)), info.newBest ? 'gold' : 'dim'],
     ]);
-    if (info.newBest) this.note('NEW PERSONAL BEST', 'gold');
-    else this.note(`Best run reached wave ${info.bestWave}`, 'dim');
-    const again = btn('RUN AGAIN', () => this.close(actions.onRetry), 'primary', 'lg');
+    if (info.newBest) this.note(t('run.newBest'), 'gold');
+    else this.note(t('run.bestWave', { n: info.bestWave }), 'dim');
+    const again = btn(t('run.again'), () => this.close(actions.onRetry), 'primary', 'lg');
     again.dataset.role = 'retry';
-    this.actions(again, btn('MAIN MENU', () => this.close(actions.onMenu), 'ghost'));
-    this.card.append(el('div', { class: 'seed', text: `SHIFT ${formatSeed(info.seed)}` }));
+    this.actions(again, btn(t('run.mainMenu'), () => this.close(actions.onMenu), 'ghost'));
+    this.card.append(el('div', { class: 'seed', text: t('run.shift', { seed: formatSeed(info.seed) }) }));
   }
 }
 
 // ---------------------------------------------------------------------------
 
+/** A score line's label in the current language. Ruleset 2: 'clean' means no help was used. */
+function scoreLabel(l: ScoreLine, wave: number): string {
+  switch (l.key) {
+    case 'cargo':
+      return t('score.cargo');
+    case 'shipment':
+      return t('score.shipment', { n: wave });
+    case 'balance':
+      return t('score.balance');
+    case 'perfect':
+      return t('score.perfect');
+    case 'clean':
+      return t('score.cleanAssistFree');
+  }
+}
+
 /** Non-blocking wave-clear breakdown for Endless. Auto-dismissed by the game. */
 export class WaveClearCard {
   private el: HTMLElement;
 
-  constructor(result: WaveResult) {
+  constructor(result: WaveResult, wave: number) {
     const lines = result.lines.map((l, i) =>
       el('div', { class: 'line', style: { animationDelay: `${120 + i * 90}ms` } }, [
-        el('span', { class: 'k', text: l.label }),
+        el('span', { class: 'k', text: scoreLabel(l, wave) }),
         el('span', { class: 'v', text: `+${l.value}` }),
       ]),
     );
@@ -392,7 +382,7 @@ export class WaveClearCard {
       style: { animationDelay: `${160 + result.lines.length * 90}ms` },
     });
     this.el = el('div', { class: 'wave-card' }, [
-      el('div', { class: 't', text: 'SHIPMENT DISPATCHED' }),
+      el('div', { class: 't', text: t('wave.dispatched') }),
       ...lines,
       total,
     ]);

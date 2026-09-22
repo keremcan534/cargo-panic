@@ -4,13 +4,8 @@
  */
 
 import type { HazardKind } from '../game/systems/HazardSystem';
+import { fmt, t } from '../i18n';
 import { el, iconBtn, uiRoot } from './dom';
-
-const HAZARD_TEXT: Record<HazardKind, string> = {
-  balance: 'RACK TIPPING',
-  overload: 'SHELF OVERLOADED',
-  fragile: 'FRAGILE CARGO CRUSHING',
-};
 
 export interface HudConfig {
   title: string;
@@ -42,8 +37,8 @@ export class Hud {
     this.remainingEl = el('div', { class: 'remaining', text: '' });
 
     const icons = el('div', { class: 'icons' }, [
-      config.showRestart ? iconBtn('restart', handlers.onRestart, 'Restart') : null,
-      iconBtn('pause', handlers.onPause, 'Pause'),
+      config.showRestart ? iconBtn('restart', handlers.onRestart, t('hud.restart')) : null,
+      iconBtn('pause', handlers.onPause, t('hud.pause')),
     ]);
 
     this.el = el('div', { class: 'hud' }, [
@@ -62,7 +57,7 @@ export class Hud {
   }
 
   setRemaining(left: number, total: number) {
-    this.remainingEl.textContent = `${left} / ${total} LEFT`;
+    this.remainingEl.textContent = t('hud.left', { left, total });
     this.remainingEl.classList.toggle('done', left === 0);
   }
 
@@ -89,7 +84,7 @@ export class Hud {
       this.banner.classList.add('on');
     }
     const secs = Math.max(0, remainingMs / 1000);
-    this.bannerText.textContent = `${HAZARD_TEXT[kind]}  -  FIX IT  ${secs.toFixed(1)}s`;
+    this.bannerText.textContent = t('hud.fixIt', { hazard: t(`hazard.${kind}` as const), secs: fmt(secs) });
     const ratio = Math.max(0, Math.min(1, remainingMs / totalMs));
     this.bannerBar.style.transform = `scaleX(${ratio})`;
   }

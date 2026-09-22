@@ -9,6 +9,7 @@ import { LEVELS, TOTAL_LEVELS } from '../game/levels/levels';
 import { audio } from '../game/systems/AudioManager';
 import { haptics } from '../game/systems/Haptics';
 import { progress } from '../game/systems/ProgressManager';
+import { t } from '../i18n';
 import type { Backdrop, Stage } from '../render/Stage';
 import { menuScreen } from './Menu';
 import { STAR_SVG, btn, el, fadeIn, fadeOut, iconBtn, uiRoot } from './dom';
@@ -57,7 +58,7 @@ export function levelSelectScreen(ctx: AppContext): Screen {
 
       const next = progress.unlocked;
       const cont = btn(
-        progress.completedCount() === 0 ? 'START LEVEL 1' : `CONTINUE - LEVEL ${next}`,
+        progress.completedCount() === 0 ? t('levels.start') : t('levels.continue', { n: next }),
         () => start(next),
         'primary',
         'md',
@@ -67,13 +68,13 @@ export function levelSelectScreen(ctx: AppContext): Screen {
       root = el('div', { class: 'screen levels fade-in' }, [
         el('div', { class: 'dim-3d' }),
         el('div', { class: 'head' }, [
-          iconBtn('back', () => void fadeOut(180).then(() => ctx.router.go(menuScreen)), 'Back'),
-          el('h1', { text: 'SELECT LEVEL' }),
+          iconBtn('back', () => void fadeOut(180).then(() => ctx.router.go(menuScreen)), t('levels.back')),
+          el('h1', { text: t('levels.title') }),
           el('div'),
-          el('div', { class: 'stars', text: `${progress.totalStars()} / ${TOTAL_LEVELS * 3} STARS COLLECTED` }),
+          el('div', { class: 'stars', text: t('levels.stars', { stars: progress.totalStars(), total: TOTAL_LEVELS * 3 }) }),
         ]),
         grid,
-        el('div', { class: 'foot' }, [cont, el('div', { class: 'hint', text: 'Clear a level to unlock the next one' })]),
+        el('div', { class: 'foot' }, [cont, el('div', { class: 'hint', text: t('levels.hint') })]),
       ]);
       uiRoot().append(root);
       fadeIn();

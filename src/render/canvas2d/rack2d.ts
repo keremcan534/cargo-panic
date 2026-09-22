@@ -14,6 +14,7 @@ import { TIER_LEVERAGE_STEP, W3 } from '../../game/config';
 import { tierLeverage } from '../../game/levels/types';
 import type { LevelDef } from '../../game/levels/types';
 import { drawPriorityTag, drawSealedPlaque, drawShelfLabel, roundRect } from '../art/cargoArt';
+import { t as text } from '../../i18n';
 import { cargoCentreY, rackHalfWidth, rackTopY, shelfSurfaceY, slotCentreX } from '../layout';
 import { bakeGlow, freeCanvas, makeCanvas } from './sprites2d';
 
@@ -236,7 +237,7 @@ export class RackArt2D {
         ctx.translate(x0, y0);
         ctx.fillStyle = 'rgba(26,15,8,0.72)';
         ctx.fillRect(0, 0, sw * s, W3.cargoH * s);
-        drawSealedPlaque(ctx, sw * s, W3.cargoH * s);
+        drawSealedPlaque(ctx, sw * s, W3.cargoH * s, text('shelf.sealed'));
       });
     }
     const z = def.zone;
@@ -281,7 +282,7 @@ export class RackArt2D {
     const th = Math.max(15, 0.36 * s);
     // Its own canvas: the shared art clears its box before drawing.
     const [c, ctx] = makeCanvas(tw * this.dpr, th * this.dpr);
-    drawPriorityTag(ctx, c.width, c.height);
+    drawPriorityTag(ctx, c.width, c.height, text('shelf.priorityTag'));
     const cx = ((z.from + z.to) / 2 - def.slots / 2) * s;
     const bottom = -shelfSurfaceY(t) * s - 0.07 * s;
     return { canvas: c, x: cx - tw / 2, y: bottom - th, w: tw, h: th };

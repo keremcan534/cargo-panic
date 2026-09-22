@@ -242,7 +242,7 @@ describe('InteractionController', () => {
     assert.equal(board(), before);
     assert.equal(session.held, null);
     assert.equal(session.rejectedDrops, 1, 'the refused drop is counted');
-    assert.ok(log.includes('rejected:NO ROOM THERE'));
+    assert.ok(log.includes('rejected:occupied'), 'the reason code goes to the UI, which words it');
     assert.deepEqual(view.only('cargo'), ['cargoReturn:1']);
   });
 

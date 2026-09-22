@@ -5,6 +5,7 @@
  */
 
 import type { BalanceStatus } from '../game/systems/BalanceSystem';
+import { fmt, t } from '../i18n';
 import { el, uiRoot } from './dom';
 
 export class Meter {
@@ -25,12 +26,12 @@ export class Meter {
   constructor(tolerance: number) {
     this.tolerance = Math.max(0.001, tolerance);
 
-    this.delta = el('div', { class: 'delta stable', text: `0.0 / ${this.tolerance.toFixed(1)}` });
+    this.delta = el('div', { class: 'delta stable', text: `${fmt(0)} / ${fmt(this.tolerance)}` });
     this.needle = el('div', { class: 'needle' });
     this.ghost = el('div', { class: 'ghost' });
     this.fill = el('div', { class: 'fill' });
-    this.left = el('span', { text: 'LEFT 0.0' });
-    this.right = el('span', { text: '0.0 RIGHT' });
+    this.left = el('span', { text: t('meter.left', { v: fmt(0) }) });
+    this.right = el('span', { text: t('meter.right', { v: fmt(0) }) });
 
     this.track = el('div', { class: 'track' }, [
       el('div', { class: 'zones' }),
@@ -43,7 +44,7 @@ export class Meter {
     ]);
 
     this.el = el('div', { class: 'meter' }, [
-      el('div', { class: 'row' }, [el('div', { class: 'label', text: 'RACK BALANCE' }), this.delta]),
+      el('div', { class: 'row' }, [el('div', { class: 'label', text: t('meter.label') }), this.delta]),
       this.track,
       el('div', { class: 'lr' }, [this.left, this.right]),
     ]);
@@ -69,15 +70,15 @@ export class Meter {
   setValue(net: number, leftTorque: number, rightTorque: number, status: BalanceStatus) {
     this.targetNet = net;
     const imbalance = Math.abs(net);
-    this.delta.textContent = `${imbalance.toFixed(1)} / ${this.tolerance.toFixed(1)}`;
+    this.delta.textContent = `${fmt(imbalance)} / ${fmt(this.tolerance)}`;
     if (status !== this.status) {
       this.status = status;
       this.delta.className = `delta ${status}`;
       this.fill.style.background =
         status === 'stable' ? 'var(--good)' : status === 'risky' ? 'var(--warn)' : 'var(--bad)';
     }
-    this.left.textContent = `LEFT ${leftTorque.toFixed(1)}`;
-    this.right.textContent = `${rightTorque.toFixed(1)} RIGHT`;
+    this.left.textContent = t('meter.left', { v: fmt(leftTorque) });
+    this.right.textContent = t('meter.right', { v: fmt(rightTorque) });
     this.left.classList.toggle('lit', net < -0.05);
     this.right.classList.toggle('lit', net > 0.05);
   }

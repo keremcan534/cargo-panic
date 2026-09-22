@@ -21,7 +21,6 @@
 import { PACKAGE_SPECS } from '../game/levels/types';
 import type { GameSession } from '../game/session';
 import type { TargetKind } from '../game/session/types';
-import { rejectionMessage } from '../game/systems/BalanceSystem';
 import type { PlaceRejection } from '../game/systems/BalanceSystem';
 import type { DropTarget, GameView, PointerSample } from '../render/GameView';
 
@@ -41,8 +40,8 @@ export interface InteractionHooks {
   preview(net: number | null): void;
   /** The pointer entered / left the belt drop area. */
   beltHover(on: boolean): void;
-  /** A drop on a slot the rules refuse. The package is already on its way back. */
-  rejected(reason: string): void;
+  /** A drop on a slot the rules refuse (the reason code; the UI words it). The package is already on its way back. */
+  rejected(reason: PlaceRejection): void;
   /** A move was committed; the controller re-syncs the board. */
   placed(cargoId: number, quiet: boolean): void;
   /** The committed package touched down on its shelf. */
@@ -70,7 +69,7 @@ export interface InteractionOptions {
 }
 
 type Shown =
-  | { kind: 'slot'; shelf: number; slot: number; ghost: TargetKind; reason: string }
+  | { kind: 'slot'; shelf: number; slot: number; ghost: TargetKind }
   | { kind: 'belt' };
 
 interface Active {
@@ -276,14 +275,12 @@ export class InteractionController {
     const target = { shelf: t.shelf, slot: t.slot };
     const pv = this.session.preview(a.cargoId, t.shelf, t.slot);
     if (pv.kind === 'bad' || !pv.evaluation) {
-      const reason = pv.rejection ? rejectionMessage(pv.rejection) : '';
-      this.shown = { kind: 'slot', ...target, ghost: 'bad', reason };
+      this.shown = { kind: 'slot', ...target, ghost: 'bad' };
       this.view.showGhost(target, a.slots, 'bad');
       this.hooks.preview(null);
       return;
     }
-    const reason = pv.willCrush ? 'CRUSHES FRAGILE CARGO' : pv.willOverload ? 'OVER LOAD LIMIT' : '';
-    this.shown = { kind: 'slot', ...target, ghost: pv.kind, reason };
+    this.shown = { kind: 'slot', ...target, ghost: pv.kind };
     this.view.showGhost(target, a.slots, pv.kind);
     this.hooks.preview(pv.evaluation.net);
   }
@@ -316,7 +313,7 @@ export class InteractionController {
         return;
       }
       if (!r.ok) {
-        if (isPlaceRejection(r.rejection)) this.hooks.rejected(shown.reason || rejectionMessage(r.rejection));
+        if (isPlaceRejection(r.rejection)) this.hooks.rejected(r.rejection);
         v.cargoReturn(id);
         return;
       }
