@@ -249,6 +249,25 @@ for (const [w, h] of VIEWPORTS) {
       expect(errors).toEqual([]);
     });
 
+    test('disposing the view and the stage leaves nothing drawing', async ({ page }) => {
+      const errors: string[] = [];
+      await open(page, 'level=3', errors);
+      const result = await page.evaluate(() => {
+        const hh = (window as any).__harness;
+        hh.freeze();
+        hh.view.dispose();
+        hh.view.dispose(); // idempotent
+        hh.stage.render(16); // no layers: clears to the background
+        const before = document.querySelectorAll('#game-canvas').length;
+        hh.stage.dispose();
+        hh.stage.dispose();
+        hh.stage.render(16); // a disposed stage ignores frames
+        return { before, after: document.querySelectorAll('#game-canvas').length };
+      });
+      expect(result).toEqual({ before: 1, after: 0 });
+      expect(errors).toEqual([]);
+    });
+
     test('menu backdrop', async ({ page }) => {
       const errors: string[] = [];
       await open(page, 'view=menu', errors);
