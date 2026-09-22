@@ -6,6 +6,7 @@
 
 import * as THREE from 'three';
 import { MAT, glowTexture } from './Materials';
+import { disposeTree } from './dispose';
 
 export interface WarehouseOpts {
   /** Half-width of the player's rack; sizes the key light's shadow frustum. */
@@ -143,7 +144,8 @@ export class Warehouse {
     });
   }
 
+  /** Frees geometry, lamp/halo/pool materials, the glow texture and every shadow map. */
   dispose() {
-    this.group.removeFromParent();
+    disposeTree(this.group);
   }
 }

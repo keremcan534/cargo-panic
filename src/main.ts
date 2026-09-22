@@ -1,17 +1,19 @@
 /**
- * Entry point. One WebGL renderer under one DOM UI root, plus the browser
- * gesture lockdown a full-screen touch game needs.
+ * Entry point. One stage (Three.js in this build) under one DOM UI root, one
+ * frame loop, plus the browser gesture lockdown a full-screen touch game needs.
  */
 
 import './style.css';
-import { Router } from './app/Router';
+import { App } from './app/App';
+import { FrameLoop } from './app/FrameLoop';
 import { audio } from './game/systems/AudioManager';
-import { Renderer } from './render/Renderer';
+import { ThreeStage } from './render/three/ThreeStage';
 import { splashScreen } from './ui/Splash';
 
 const root = document.getElementById('game-root') as HTMLElement;
-const renderer = new Renderer(root);
-const router = new Router(renderer);
+const stage = new ThreeStage(root);
+const loop = new FrameLoop();
+const app = new App(stage, loop);
 
 // Retire the pre-render HTML splash now that we can paint.
 const boot = document.getElementById('boot-splash');
@@ -20,8 +22,19 @@ if (boot) {
   window.setTimeout(() => boot.remove(), 500);
 }
 
-renderer.start();
-router.go(splashScreen);
+app.start();
+app.router.go(splashScreen);
+
+// Browser tests (`?e2e`) and dev builds can read GPU resource counts, to catch leaks across screens.
+if (import.meta.env.DEV || new URLSearchParams(window.location.search).has('e2e')) {
+  (window as unknown as { __cargoPanicGpu: () => Record<string, number> }).__cargoPanicGpu = () => ({
+    geometries: stage.gl.info.memory.geometries,
+    textures: stage.gl.info.memory.textures,
+    programs: stage.gl.info.programs?.length ?? 0,
+    sceneChildren: stage.scene.children.length,
+    frames: loop.frames,
+  });
+}
 
 // --- browser gesture lockdown ----------------------------------------------
 const stop = (e: Event) => e.preventDefault();

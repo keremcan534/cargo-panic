@@ -4,12 +4,12 @@
  */
 
 import * as THREE from 'three';
-import { W3 } from '../game/config';
-import { PACKAGE_SPECS } from '../game/levels/types';
-import type { PackageSpec, PackageType } from '../game/levels/types';
-import { cargoMaterials } from '../render/Materials';
-import { Easing } from '../render/Tween';
-import type { Tweens } from '../render/Tween';
+import { W3 } from '../../../game/config';
+import { PACKAGE_SPECS } from '../../../game/levels/types';
+import type { PackageSpec, PackageType } from '../../../game/levels/types';
+import { cargoMaterials } from '../Materials';
+import { Easing } from '../../Tween';
+import type { Tweens } from '../../Tween';
 
 export type CargoState = 'queued' | 'dragging' | 'placed' | 'falling';
 

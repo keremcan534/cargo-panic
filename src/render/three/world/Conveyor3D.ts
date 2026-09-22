@@ -5,8 +5,9 @@
  */
 
 import * as THREE from 'three';
-import { W3 } from '../game/config';
-import { MAT } from '../render/Materials';
+import { W3 } from '../../../game/config';
+import { MAT } from '../Materials';
+import { disposeTree } from '../dispose';
 
 function beltTexture(): THREE.CanvasTexture {
   const c = document.createElement('canvas');
@@ -95,8 +96,9 @@ export class Conveyor3D {
     this.tex.offset.x -= (this.speed * dtMs) / 1000;
   }
 
+  /** Frees the belt geometry, its material and scrolling texture. */
   dispose() {
+    disposeTree(this.group);
     this.tex.dispose();
-    this.group.removeFromParent();
   }
 }

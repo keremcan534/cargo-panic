@@ -5,6 +5,7 @@
 
 import * as THREE from 'three';
 import { chipTexture, glowTexture } from './Materials';
+import { disposeTree } from './dispose';
 
 const MAX = 600;
 
@@ -208,5 +209,11 @@ export class Particles {
       (g.getAttribute('aSize') as THREE.BufferAttribute).needsUpdate = true;
       (g.getAttribute('aColor') as THREE.BufferAttribute).needsUpdate = true;
     }
+  }
+
+  /** Removes both pools from the scene and frees their buffers, shaders and sprites. */
+  dispose() {
+    disposeTree(this.soft.points);
+    disposeTree(this.chip.points);
   }
 }

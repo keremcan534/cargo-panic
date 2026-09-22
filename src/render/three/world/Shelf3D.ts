@@ -4,12 +4,13 @@
  */
 
 import * as THREE from 'three';
-import { TIER_LEVERAGE_STEP, W3 } from '../game/config';
-import { tierLeverage } from '../game/levels/types';
-import type { ShelfDef } from '../game/levels/types';
-import { MAT, drawShelfLabel, priorityTagTexture, sealedTexture } from '../render/Materials';
-import { Easing } from '../render/Tween';
-import type { Tweens } from '../render/Tween';
+import { TIER_LEVERAGE_STEP, W3 } from '../../../game/config';
+import { tierLeverage } from '../../../game/levels/types';
+import type { ShelfDef } from '../../../game/levels/types';
+import { MAT, drawShelfLabel, priorityTagTexture, sealedTexture } from '../Materials';
+import { cargoCentreY, shelfSurfaceY, slotCentreX, slotFromX } from '../../layout';
+import { Easing } from '../../Tween';
+import type { Tweens } from '../../Tween';
 
 export class Shelf3D {
   readonly tier: number;
@@ -37,7 +38,7 @@ export class Shelf3D {
     this.tier = tier;
     this.def = def;
     this.width = def.slots * W3.slot;
-    this.surfaceY = W3.shelfBase + tier * W3.tier;
+    this.surfaceY = shelfSurfaceY(tier);
     this.leverage = tierLeverage(tier, TIER_LEVERAGE_STEP);
 
     const y = this.surfaceY;
@@ -96,20 +97,19 @@ export class Shelf3D {
     parent.add(this.group);
   }
 
-  // --- geometry -------------------------------------------------------------
+  // --- geometry (the shared hit-test in render/layout.ts) ---------------------
 
   slotCentreX(slot: number, slots: number): number {
-    return (slot + slots / 2 - this.def.slots / 2) * W3.slot;
+    return slotCentreX(this.def.slots, slot, slots);
   }
 
   slotFromX(localX: number, slots: number): number {
-    const raw = localX / W3.slot + this.def.slots / 2 - slots / 2;
-    return Math.max(0, Math.min(this.def.slots - slots, Math.round(raw)));
+    return slotFromX(this.def.slots, localX, slots);
   }
 
   /** Centre y of cargo resting on this shelf. */
   get cargoCentreY(): number {
-    return this.surfaceY + W3.cargoH / 2 + 0.005;
+    return cargoCentreY(this.tier);
   }
 
   // --- decor ----------------------------------------------------------------
@@ -207,8 +207,10 @@ export class Shelf3D {
     });
   }
 
+  /** Stops its tweens and frees the label texture; the rack frees the meshes. */
   dispose() {
     this.glowStop?.();
+    this.tweens.kill(this.plank.position);
     this.labelTex.dispose();
   }
 }

@@ -209,7 +209,7 @@ degrees down, so the slot grid stays a flat, readable plane facing the player -
 the puzzle is still "which slot", never "aim in 3D" - but planks have depth,
 cargo has volume, and the belt sits in front of the rack instead of below it.
 
-**Framing is solved, not tuned.** [`frameCamera`](src/render/Framing.ts)
+**Framing is solved, not tuned.** [`frameCamera`](src/render/three/Framing.ts)
 iterates camera distance and height against three screen-space constraints: the
 rack fits the width with a margin, its cap beam stays below the HUD band, and
 the belt's front edge is pinned to the same screen height on every level so the
@@ -302,21 +302,31 @@ Haptics currently go through `navigator.vibrate`
 
 ```
 src/
-  main.ts                  renderer boot, router, browser gesture lockdown
+  main.ts                  creates the stage, app and frame loop; browser gesture lockdown
   app/
-    Router.ts              one renderer, one UI root, one screen at a time
-    Game.ts                gameplay controller: drag loop, hazards, win/fail, endless
+    App.ts                 current Stage + the single FrameLoop + Router
+    FrameLoop.ts           the only requestAnimationFrame loop
+    Router.ts              one stage, one UI root, one screen at a time
+    Game.ts                gameplay controller: GameSession, HUD/panels, audio, win/fail, endless
+  input/
+    InteractionController.ts  pointer state machine -> session commands + view calls
   render/
-    Renderer.ts            Three.js renderer, camera, post-processing, picking
-    Framing.ts             camera framing solver (pure, shared with tooling)
-    Materials.ts           procedural canvas textures and PBR materials
-    Warehouse.ts           floor, wall, lamps, lights
-    Particles.ts           pooled point-cloud effects
+    GameView.ts, Stage.ts  renderer contracts (no three.js)
+    layout.ts              screen bands and slot hit-testing shared by every renderer
     Tween.ts               tween runner
-  world/                   Rack3D, Shelf3D, Cargo3D, Conveyor3D
+    art/                   canvas artwork for cargo faces and shelf labels
+    canvas2d/              2D geometry (Canvas 2D view arrives in A2)
+    three/                 everything that imports three.js:
+      ThreeStage.ts        WebGL renderer, camera, post chain, particles, shake, picking
+      ThreeGameView.ts     the 3D game view (drag, landings, spills, dispatch, confetti)
+      backdrops.ts         menu and level-select scenes
+      Framing.ts           camera framing solver
+      Materials.ts         PBR materials from the canvas artwork
+      Warehouse.ts, Particles.ts, world/{Rack3D,Shelf3D,Cargo3D,Conveyor3D}
   ui/                      DOM: Hud, Meter, Panels, Menu, LevelSelect, Splash
   game/
     config.ts              tuning constants and world proportions
+    session/               GameSession: the pure rules state and commands
     systems/               Balance, Placement, Hazard, Solver, Rng, RunManager,
                            Audio, Haptics, Hint gate, Progress
     levels/                campaign data, package specs, endless generator
@@ -327,7 +337,9 @@ scripts/
 
 One `Game` controller runs both modes: Endless simply feeds it generated
 `LevelDef`s and wraps them in a run. Nothing in the placement, balance or
-hazard code knows which mode it is in.
+hazard code knows which mode it is in. The controller never touches three.js:
+it drives a `GameSession` with semantic commands and tells the stage's
+`GameView` what happened.
 
 `BalanceSystem`, `Solver`, `Framing` and the level data import no DOM, which is
 what lets the validators and the regression harness run them in Node.
