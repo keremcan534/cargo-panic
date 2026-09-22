@@ -1,51 +1,20 @@
 /**
- * Title screen: a lit hero rack swaying in the 3D scene, DOM controls over it.
+ * Title screen: the stage's hero-rack backdrop with DOM controls over it.
  */
 
-import * as THREE from 'three';
 import type { AppContext, Screen } from '../app/Router';
 import { gameScreen } from '../app/Game';
 import { TOTAL_LEVELS } from '../game/levels/levels';
-import type { LevelDef, PackageType } from '../game/levels/types';
 import { audio } from '../game/systems/AudioManager';
 import { progress } from '../game/systems/ProgressManager';
 import { formatScore, newRun, seedFromUrl } from '../game/systems/RunManager';
-import { Easing } from '../render/Tween';
-import { Warehouse } from '../render/three/Warehouse';
-import { Cargo3D } from '../render/three/world/Cargo3D';
-import { Rack3D } from '../render/three/world/Rack3D';
+import type { Backdrop } from '../render/Stage';
 import { levelSelectScreen } from './LevelSelect';
 import { btn, el, fadeIn, fadeOut, iconBtn, setIcon, uiRoot } from './dom';
 
-const HERO: LevelDef = {
-  id: 0,
-  name: 'HERO',
-  objective: '',
-  shelves: [
-    { slots: 6, maxWeight: 99 },
-    { slots: 6, maxWeight: 99 },
-  ],
-  packages: [],
-  balanceTolerance: 99,
-};
-
-const HERO_CARGO: [PackageType, number, number][] = [
-  ['heavy', 1, 0],
-  ['standard', 1, 1],
-  ['fragile', 1, 3],
-  ['standard', 1, 4],
-  ['long', 0, 0],
-  ['priority', 0, 4],
-];
-
 export function menuScreen(ctx: AppContext): Screen {
-  const { renderer } = ctx;
   let root: HTMLElement;
-  let warehouse: Warehouse;
-  let rack: Rack3D;
-  let cargo: Cargo3D[] = [];
-  let stopSway: (() => void) | undefined;
-  let offFrame: (() => void) | undefined;
+  let backdrop: Backdrop | undefined;
 
   const go = (factory: Parameters<typeof ctx.router.go>[0]) => {
     void fadeOut(200).then(() => ctx.router.go(factory));
@@ -53,30 +22,7 @@ export function menuScreen(ctx: AppContext): Screen {
 
   return {
     enter() {
-      renderer.frame(2, 6);
-      // The hero rack sits a little lower so the wordmark has the top third.
-      renderer.camera.position.y += 0.4;
-      renderer.camera.lookAt(0, 0.7, 0);
-
-      rack = new Rack3D(renderer.tweens, HERO, renderer.scene);
-      warehouse = new Warehouse({ rackHalfWidth: rack.halfWidth });
-      renderer.scene.add(warehouse.group);
-
-      for (const [type, tier, slot] of HERO_CARGO) {
-        const c = new Cargo3D(renderer.tweens, cargo.length, type);
-        const s = rack.shelves[tier];
-        c.mesh.position.set(s.slotCentreX(slot, c.slots), s.cargoCentreY, 0.02);
-        rack.group.add(c.mesh);
-        cargo.push(c);
-      }
-      stopSway = renderer.tweens.add(rack.group.rotation, { z: 0.02 }, {
-        ms: 3200,
-        yoyo: true,
-        repeat: -1,
-        ease: Easing.sineInOut,
-      });
-      rack.group.rotation.z = -0.02;
-      offFrame = renderer.onFrame((dt) => warehouse.tick(dt));
+      backdrop = ctx.stage.showBackdrop('menu');
 
       const done = progress.completedCount();
       const stars = progress.totalStars();
@@ -129,14 +75,9 @@ export function menuScreen(ctx: AppContext): Screen {
       fadeIn();
     },
     exit() {
-      stopSway?.();
-      offFrame?.();
-      for (const c of cargo) c.dispose();
-      cargo = [];
-      rack.dispose();
-      warehouse.dispose();
+      backdrop?.dispose();
+      backdrop = undefined;
       root.remove();
-      renderer.scene.remove(...renderer.scene.children.filter((o) => !(o instanceof THREE.Points)));
     },
   };
 }

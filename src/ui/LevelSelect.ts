@@ -3,21 +3,19 @@
  * dark until the previous level is cleared.
  */
 
-import * as THREE from 'three';
 import type { AppContext, Screen } from '../app/Router';
 import { gameScreen } from '../app/Game';
 import { LEVELS, TOTAL_LEVELS } from '../game/levels/levels';
 import { audio } from '../game/systems/AudioManager';
 import { haptics } from '../game/systems/Haptics';
 import { progress } from '../game/systems/ProgressManager';
-import { Warehouse } from '../render/three/Warehouse';
+import type { Backdrop } from '../render/Stage';
 import { menuScreen } from './Menu';
 import { STAR_SVG, btn, el, fadeIn, fadeOut, iconBtn, uiRoot } from './dom';
 
 export function levelSelectScreen(ctx: AppContext): Screen {
-  const { renderer } = ctx;
   let root: HTMLElement;
-  let warehouse: Warehouse;
+  let backdrop: Backdrop | undefined;
 
   const start = (id: number) => {
     void fadeOut(180).then(() => ctx.router.go((c) => gameScreen(c, { levelId: id })));
@@ -25,9 +23,7 @@ export function levelSelectScreen(ctx: AppContext): Screen {
 
   return {
     enter() {
-      renderer.frame(3, 7);
-      warehouse = new Warehouse({ rackHalfWidth: 3.8 });
-      renderer.scene.add(warehouse.group);
+      backdrop = ctx.stage.showBackdrop('levels');
 
       const grid = el('div', { class: 'grid' });
       for (const level of LEVELS) {
@@ -83,9 +79,9 @@ export function levelSelectScreen(ctx: AppContext): Screen {
       fadeIn();
     },
     exit() {
-      warehouse.dispose();
+      backdrop?.dispose();
+      backdrop = undefined;
       root.remove();
-      renderer.scene.remove(...renderer.scene.children.filter((o) => !(o instanceof THREE.Points)));
     },
   };
 }

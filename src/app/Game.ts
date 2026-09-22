@@ -27,6 +27,7 @@ import { formatScore, newRun, scoreWave } from '../game/systems/RunManager';
 import type { RunState } from '../game/systems/RunManager';
 import { hintFor } from '../game/systems/Solver';
 import { Easing } from '../render/Tween';
+import type { ThreeStage } from '../render/three/ThreeStage';
 import { Warehouse } from '../render/three/Warehouse';
 import { Hud } from '../ui/Hud';
 import { levelSelectScreen } from '../ui/LevelSelect';
@@ -140,7 +141,7 @@ class GameController implements Screen {
   }
 
   private get r() {
-    return this.ctx.renderer;
+    return this.ctx.stage as ThreeStage;
   }
 
   // ==========================================================================
@@ -207,19 +208,19 @@ class GameController implements Screen {
       this.tip = new TipCard(this.level.tip);
     }
 
-    const canvas = r.domElement;
+    const canvas = r.canvas;
     canvas.addEventListener('pointerdown', this.onPointerDown);
     canvas.addEventListener('pointermove', this.onPointerMove);
     canvas.addEventListener('pointerup', this.onPointerUp);
     canvas.addEventListener('pointercancel', this.onPointerCancel);
     window.addEventListener('blur', this.onPointerCancel);
 
-    this.offFrame = r.onFrame((dt) => this.update(dt));
+    this.offFrame = this.ctx.loop.onFrame((dt) => this.update(dt));
     fadeIn();
   }
 
   exit() {
-    const canvas = this.r.domElement;
+    const canvas = this.r.canvas;
     canvas.removeEventListener('pointerdown', this.onPointerDown);
     canvas.removeEventListener('pointermove', this.onPointerMove);
     canvas.removeEventListener('pointerup', this.onPointerUp);
@@ -240,7 +241,6 @@ class GameController implements Screen {
     this.controls.remove();
     this.beltZone.remove();
     this.dangerEl.remove();
-    this.r.scene.remove(...this.r.scene.children.filter((o) => !(o instanceof THREE.Points)));
   }
 
   private after(ms: number, fn: () => void) {
@@ -320,7 +320,7 @@ class GameController implements Screen {
     if (!hit) return;
     const cargo = this.cargo[hit.userData.cargoId as number];
     if (cargo) {
-      this.r.domElement.setPointerCapture(e.pointerId);
+      this.r.canvas.setPointerCapture(e.pointerId);
       this.beginDrag(cargo, e);
     }
   };
@@ -390,7 +390,7 @@ class GameController implements Screen {
     const c = this.dragged;
     if (!c) return;
 
-    const rect = this.r.domElement.getBoundingClientRect();
+    const rect = this.r.canvas.getBoundingClientRect();
     const fy = (this.pointerClient.y - rect.top) / rect.height;
     if (fy > BELT_ZONE) {
       this.target = null;
@@ -923,7 +923,7 @@ class GameController implements Screen {
 
     this.after(700, () => {
       if (this.phase === 'resolving') {
-        this.r.domElement.addEventListener('pointerdown', () => this.advanceWave(), { once: true });
+        this.r.canvas.addEventListener('pointerdown', () => this.advanceWave(), { once: true });
       }
     });
     this.after(2400, () => this.advanceWave());

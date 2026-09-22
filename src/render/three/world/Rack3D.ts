@@ -6,8 +6,9 @@
 
 import * as THREE from 'three';
 import { MAX_TILT_DEG, W3 } from '../../../game/config';
-import type { LevelDef } from '../../../game/levels/types';
+import type { LevelDef, PackageType } from '../../../game/levels/types';
 import { MAT } from '../Materials';
+import { disposeTree } from '../dispose';
 import { rackHalfWidth, rackTopY } from '../../layout';
 import { Easing } from '../../Tween';
 import type { Tweens } from '../../Tween';
@@ -15,6 +16,14 @@ import type { Cargo3D } from './Cargo3D';
 import { Shelf3D } from './Shelf3D';
 
 export type GhostKind = 'ok' | 'crush' | 'bad';
+
+/** What the crush-column overlay needs to know about a stowed package. */
+export interface StowedCargo {
+  type: PackageType;
+  shelf: number;
+  slot: number;
+  slots: number;
+}
 
 export class Rack3D {
   readonly group = new THREE.Group();
@@ -24,6 +33,8 @@ export class Rack3D {
 
   private ghost: THREE.Mesh;
   private columns = new THREE.Group();
+  /** One material for every crush band; only its opacity changes. */
+  private columnMat = MAT.crushBand.clone();
   private targetRoll = 0;
   private wobble = 0;
   private wobblePhase = 0;
@@ -137,12 +148,12 @@ export class Rack3D {
   }
 
   /** Vertical "no heavy cargo" bands above every stowed fragile crate. */
-  updateCrushColumns(placed: Cargo3D[], emphasise: boolean) {
+  updateCrushColumns(placed: readonly StowedCargo[], emphasise: boolean) {
     for (const c of [...this.columns.children]) {
       this.columns.remove(c);
       (c as THREE.Mesh).geometry.dispose();
     }
-    const mat = MAT.crushBand.clone();
+    const mat = this.columnMat;
     mat.opacity = emphasise ? 0.3 : 0.11;
     for (const p of placed) {
       if (p.type !== 'fragile' || p.shelf < 0) continue;
@@ -204,8 +215,12 @@ export class Rack3D {
     });
   }
 
+  /**
+   * Frees the frame, shelves, overlays and their materials. Cargo parented to
+   * the rack belongs to its owner, which must dispose it first.
+   */
   dispose() {
     for (const s of this.shelves) s.dispose();
-    this.group.removeFromParent();
+    disposeTree(this.group);
   }
 }

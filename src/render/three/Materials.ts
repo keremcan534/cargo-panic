@@ -3,6 +3,11 @@
  * Nothing loads from disk. Cargo faces carry their own labels (type mark and
  * weight badge) so the front of a box reads at a glance, exactly like the 2D
  * sprites did.
+ *
+ * Ownership: `MAT` and the per-type cargo materials (with their textures) are
+ * shared by every view and belong to the stage - views never dispose them
+ * (`isShared`), the stage frees them once in `disposeShared`. Every other
+ * factory here returns a fresh texture the caller owns.
  */
 
 import * as THREE from 'three';
@@ -55,6 +60,8 @@ export interface CargoMaterials {
 }
 
 const cargoCache = new Map<string, CargoMaterials>();
+/** Cargo materials and textures currently in the cache (shared, stage-owned). */
+const sharedCargo = new Set<THREE.Material | THREE.Texture>();
 
 function standardish(type: PackageType, map: THREE.Texture): THREE.MeshStandardMaterial {
   switch (type) {
@@ -92,7 +99,18 @@ export function cargoMaterials(type: PackageType): CargoMaterials {
   const built: CargoMaterials = { faces: [side, side, side, side, front, side] };
   if (type === 'fragile') built.crackedFront = standardish(type, frontTexture(type, spec.slots, true));
   cargoCache.set(key, built);
+  for (const m of cargoResources(built)) sharedCargo.add(m);
   return built;
+}
+
+function cargoResources(built: CargoMaterials): (THREE.Material | THREE.Texture)[] {
+  const out: (THREE.Material | THREE.Texture)[] = [];
+  for (const m of new Set([...built.faces, ...(built.crackedFront ? [built.crackedFront] : [])])) {
+    out.push(m);
+    const map = (m as THREE.MeshStandardMaterial).map;
+    if (map) out.push(map);
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -117,6 +135,25 @@ export const MAT = {
   ghostBad: new THREE.MeshBasicMaterial({ color: 0xff5f57, transparent: true, opacity: 0.24, depthWrite: false }),
   overloadGlow: new THREE.MeshBasicMaterial({ color: 0xff5f57, transparent: true, opacity: 0.0, depthWrite: false }),
 } as const;
+
+const sharedMat = new Set<THREE.Material>(Object.values(MAT));
+
+/** True for materials and textures the stage owns; views must not dispose these. */
+export function isShared(x: THREE.Material | THREE.Texture): boolean {
+  return sharedMat.has(x as THREE.Material) || sharedCargo.has(x);
+}
+
+/**
+ * Frees every shared material and texture. Called once by the stage on
+ * teardown. `MAT` objects stay usable (a later renderer re-uploads them); the
+ * cargo cache is emptied so it is rebuilt on demand.
+ */
+export function disposeShared() {
+  for (const m of sharedMat) m.dispose();
+  for (const x of sharedCargo) x.dispose();
+  sharedCargo.clear();
+  cargoCache.clear();
+}
 
 /** Hazard-striped "OUT OF SERVICE" plaque for a sealed shelf. */
 export function sealedTexture(widthUnits: number, text?: string): THREE.CanvasTexture {

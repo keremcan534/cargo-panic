@@ -1,7 +1,11 @@
 /**
- * The one WebGL renderer, camera and post chain for the whole game, plus the
- * frame loop everything else hangs off. Screens register an update callback
- * and add/remove their own objects from `scene`.
+ * The Three.js Stage: one WebGL renderer, camera and post chain, plus the
+ * pooled particles, camera shake and adaptive bloom every 3D screen shares.
+ *
+ * It owns no animation loop. The app's FrameLoop advances the tweens, runs
+ * the screens' updates and then calls `render(dt)` once per frame. Screens do
+ * not touch the scene directly: they get a GameView from `createGameView()`
+ * or a menu backdrop from `showBackdrop()`, and dispose what they were given.
  */
 
 import * as THREE from 'three';
@@ -9,16 +13,25 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { applyFraming, CAMERA_FOV } from './Framing';
-import { Particles } from './Particles';
+import type { GameView } from '../GameView';
+import { StageInitError } from '../Stage';
+import type { Backdrop, BackdropKind, QualityPref, Stage, StageOptions } from '../Stage';
 import { Tweens } from '../Tween';
+import { levelsBackdrop, menuBackdrop } from './backdrops';
+import { disposeTree } from './dispose';
+import { applyFraming, CAMERA_FOV } from './Framing';
+import { disposeShared } from './Materials';
+import { Particles } from './Particles';
 
 /** Beyond this the framebuffer costs more than the sharpness is worth. */
 const MAX_DPR = 2;
+/** A frame slower than this counts towards the adaptive quality drop. */
+const SLOW_FRAME_MS = 26;
+/** ~1.5 s of sustained slow frames. */
+const SLOW_FRAME_LIMIT = 90;
 
-export type FrameCallback = (dtMs: number) => void;
-
-export class ThreeStage {
+export class ThreeStage implements Stage {
+  readonly mode = '3d' as const;
   readonly scene = new THREE.Scene();
   readonly camera: THREE.PerspectiveCamera;
   readonly tweens = new Tweens();
@@ -27,9 +40,7 @@ export class ThreeStage {
 
   private composer: EffectComposer;
   private bloom: UnrealBloomPass;
-  private callbacks = new Set<FrameCallback>();
-  private last = performance.now();
-  private running = false;
+  private updaters = new Set<(dtMs: number) => void>();
 
   private framing = { tiers: 2, maxSlots: 5 };
   private shakeAmp = 0;
@@ -40,9 +51,22 @@ export class ThreeStage {
   // Adaptive quality: a sustained slow stretch drops bloom once.
   private slowFrames = 0;
   private bloomOn = true;
+  private strugglingValue = false;
+  private quality: QualityPref;
+  private reducedMotion: boolean;
+  private disposed = false;
 
-  constructor(private parent: HTMLElement) {
-    this.gl = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+  constructor(
+    private parent: HTMLElement,
+    opts: Partial<StageOptions> = {},
+  ) {
+    this.quality = opts.quality ?? 'auto';
+    this.reducedMotion = opts.reducedMotion ?? false;
+    try {
+      this.gl = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    } catch (e) {
+      throw new StageInitError('3d', e);
+    }
     this.gl.setPixelRatio(Math.min(MAX_DPR, window.devicePixelRatio || 1));
     this.gl.setSize(parent.clientWidth, parent.clientHeight);
     this.gl.shadowMap.enabled = true;
@@ -70,23 +94,115 @@ export class ThreeStage {
     this.composer.addPass(new OutputPass());
 
     this.particles = new Particles(this.scene);
+    if (this.quality === 'low') this.setBloom(false);
 
     window.addEventListener('resize', this.onResize);
   }
 
-  get domElement() {
+  get canvas(): HTMLCanvasElement {
     return this.gl.domElement;
+  }
+
+  get struggling(): boolean {
+    return this.strugglingValue;
   }
 
   private aspect() {
     return Math.max(0.2, this.parent.clientWidth / Math.max(1, this.parent.clientHeight));
   }
 
+  // ==========================================================================
+  // Stage
+  // ==========================================================================
+
+  createGameView(): GameView {
+    throw new Error('ThreeGameView is not wired yet');
+  }
+
+  showBackdrop(kind: BackdropKind): Backdrop {
+    return kind === 'menu' ? menuBackdrop(this) : levelsBackdrop(this);
+  }
+
+  setReducedMotion(on: boolean) {
+    this.reducedMotion = on;
+    if (on) this.shakeUntil = 0;
+  }
+
+  setQuality(q: QualityPref) {
+    this.quality = q;
+    this.slowFrames = 0;
+    this.strugglingValue = false;
+    this.setBloom(q !== 'low');
+  }
+
+  /** Draws one frame: backdrop animation, particles, shake, post chain, then slow-frame bookkeeping. */
+  render(dtMs: number) {
+    if (this.disposed) return;
+    for (const u of this.updaters) u(dtMs);
+    this.particles.update(dtMs);
+    this.applyShake(performance.now());
+
+    this.composer.render();
+
+    if (dtMs > SLOW_FRAME_MS) this.slowFrames++;
+    else this.slowFrames = Math.max(0, this.slowFrames - 2);
+    if (this.slowFrames > SLOW_FRAME_LIMIT) {
+      this.slowFrames = 0;
+      // Bloom is the first thing to go; after that there is nothing left to drop.
+      if (this.bloomOn && this.quality === 'auto') this.setBloom(false);
+      else if (!this.bloomOn) this.strugglingValue = true;
+    }
+  }
+
+  /**
+   * Frees everything: particles, the post chain's render targets and
+   * shaders, whatever is still in the scene, the shared materials, and the
+   * WebGL context itself. The canvas leaves the DOM.
+   */
+  dispose() {
+    if (this.disposed) return;
+    this.disposed = true;
+    window.removeEventListener('resize', this.onResize);
+    this.updaters.clear();
+    this.tweens.clear();
+    this.particles.dispose();
+    for (const pass of this.composer.passes) pass.dispose();
+    this.composer.dispose();
+    for (const child of [...this.scene.children]) disposeTree(child);
+    disposeShared();
+    this.scene.background = null;
+    this.scene.fog = null;
+    this.gl.dispose();
+    this.gl.forceContextLoss();
+    this.gl.domElement.remove();
+  }
+
+  // ==========================================================================
+  // Helpers for the 3D view and backdrops
+  // ==========================================================================
+
   /** Re-aims the camera at a rack of this shape. Re-applied on resize. */
   frame(tiers: number, maxSlots: number) {
     this.framing = { tiers, maxSlots };
     applyFraming(this.camera, this.aspect(), tiers, maxSlots);
     this.basePos.copy(this.camera.position);
+  }
+
+  /** Runs `fn` every frame just before drawing, until the returned function is called. */
+  onRender(fn: (dtMs: number) => void): () => void {
+    this.updaters.add(fn);
+    return () => this.updaters.delete(fn);
+  }
+
+  shake(amplitude: number, ms: number) {
+    if (this.reducedMotion) return;
+    this.shakeAmp = Math.max(this.shakeAmp, amplitude);
+    this.shakeUntil = Math.max(this.shakeUntil, performance.now() + ms);
+  }
+
+  setBloom(on: boolean) {
+    this.bloomOn = on;
+    this.bloom.enabled = on;
   }
 
   private onResize = () => {
@@ -97,49 +213,6 @@ export class ThreeStage {
     this.bloom.setSize(w, h);
     this.frame(this.framing.tiers, this.framing.maxSlots);
   };
-
-  onFrame(cb: FrameCallback) {
-    this.callbacks.add(cb);
-    return () => this.callbacks.delete(cb);
-  }
-
-  shake(amplitude: number, ms: number) {
-    this.shakeAmp = Math.max(this.shakeAmp, amplitude);
-    this.shakeUntil = Math.max(this.shakeUntil, performance.now() + ms);
-  }
-
-  setBloom(on: boolean) {
-    this.bloomOn = on;
-    this.bloom.enabled = on;
-  }
-
-  start() {
-    if (this.running) return;
-    this.running = true;
-    this.last = performance.now();
-    const loop = () => {
-      if (!this.running) return;
-      requestAnimationFrame(loop);
-      const now = performance.now();
-      const dt = Math.min(50, now - this.last);
-      this.last = now;
-
-      this.tweens.update(dt);
-      for (const cb of this.callbacks) cb(dt);
-      this.particles.update(dt);
-      this.applyShake(now);
-
-      this.composer.render();
-
-      if (this.bloomOn) {
-        if (dt > 26) this.slowFrames++;
-        else this.slowFrames = Math.max(0, this.slowFrames - 2);
-        // ~1.5s of sustained slow frames: bloom is the first thing to go.
-        if (this.slowFrames > 90) this.setBloom(false);
-      }
-    };
-    requestAnimationFrame(loop);
-  }
 
   private applyShake(now: number) {
     if (now >= this.shakeUntil) {
@@ -190,5 +263,12 @@ export class ThreeStage {
   toViewport(p: THREE.Vector3): { x: number; y: number } {
     const v = p.clone().project(this.camera);
     return { x: (v.x + 1) / 2, y: (1 - v.y) / 2 };
+  }
+
+  /** Client-space (CSS pixel) position of a world point. */
+  toClient(p: THREE.Vector3): { x: number; y: number } {
+    const v = this.toViewport(p);
+    const r = this.gl.domElement.getBoundingClientRect();
+    return { x: r.left + v.x * r.width, y: r.top + v.y * r.height };
   }
 }
