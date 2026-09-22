@@ -125,11 +125,13 @@ export function targetFromLocal(level: LevelDef, local: Point, slots: number): S
 
 /**
  * Drag target in 2D from the dragged package's drawn centre (rack-local and
- * world): a slot wins; the belt only when the package is over no slot and
- * below the rack floor.
+ * world): a slot wins while the package is drawn above the rack floor; once
+ * its centre drops below the floor it is over the belt. (The shared hit-test
+ * alone would keep the bottom shelf until well below the floor, which made a
+ * touch drag back to the belt needlessly tight.)
  */
 export function dragTargetFromLocal(level: LevelDef, local: Point, world: Point, slots: number): DropTarget | null {
-  const slot = targetFromLocal(level, local, slots);
+  const slot = local.y >= 0 ? targetFromLocal(level, local, slots) : null;
   if (slot) return { kind: 'slot', ...slot };
   return world.y < 0 ? { kind: 'belt' } : null;
 }

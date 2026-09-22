@@ -159,3 +159,11 @@ describe('belt vs slot precedence', () => {
     assert.deepEqual(tapTargetFromLocal(level, onShelf, onShelf, 1), { kind: 'slot', shelf: 0, slot: 2 });
   });
 });
+
+test('a dragged package whose centre drops below the rack floor is over the belt, not the bottom shelf', () => {
+  const level = LEVELS[6];
+  const justBelow = { x: slotCentreX(level.shelves[0].slots, 2, 1), y: -0.05 };
+  assert.deepEqual(dragTargetFromLocal(level, justBelow, justBelow, 1), { kind: 'belt' });
+  const justAbove = { x: justBelow.x, y: 0.05 };
+  assert.deepEqual(dragTargetFromLocal(level, justAbove, justAbove, 1), { kind: 'slot', shelf: 0, slot: 2 });
+});
