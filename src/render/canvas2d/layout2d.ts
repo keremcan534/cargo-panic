@@ -14,7 +14,9 @@ import { MAX_TILT_DEG, W3 } from '../../game/config';
 import { PACKAGE_SPECS } from '../../game/levels/types';
 import type { LevelDef, PackageType } from '../../game/levels/types';
 import type { SlotTarget } from '../../game/session/types';
-import { FRAME_BAND, rackHalfWidth, rackTopY } from '../layout';
+import { cargoCentreY, FRAME_BAND, nearestShelf, rackHalfWidth, rackTopY, slotCentreX, slotFromX } from '../layout';
+
+export { cargoCentreY, nearestShelf, shelfSurfaceY, slotCentreX, slotFromX } from '../layout';
 
 /** The belt sits below the rack floor in the front view. */
 export const BELT_2D = {
@@ -108,42 +110,6 @@ export function fromRackLocal(p: Point, tilt: number): Point {
   const c = Math.cos(tilt);
   const s = Math.sin(tilt);
   return { x: p.x * c - p.y * s, y: p.x * s + p.y * c };
-}
-
-export function shelfSurfaceY(tier: number): number {
-  return W3.shelfBase + tier * W3.tier;
-}
-
-/** Centre y of cargo resting on a tier (same as Shelf3D.cargoCentreY). */
-export function cargoCentreY(tier: number): number {
-  return shelfSurfaceY(tier) + W3.cargoH / 2 + 0.005;
-}
-
-/** Centre x of a package `slots` wide starting at `slot` (same as Shelf3D.slotCentreX). */
-export function slotCentreX(shelfSlots: number, slot: number, slots: number): number {
-  return (slot + slots / 2 - shelfSlots / 2) * W3.slot;
-}
-
-/** Slot a package `slots` wide lands in when centred at localX (same as Shelf3D.slotFromX). */
-export function slotFromX(shelfSlots: number, localX: number, slots: number): number {
-  const raw = localX / W3.slot + shelfSlots / 2 - slots / 2;
-  return Math.max(0, Math.min(shelfSlots - slots, Math.round(raw)));
-}
-
-/** Nearest tier to a rack-local point, or -1 when far outside the rack (same as Rack3D.nearestShelf). */
-export function nearestShelf(level: LevelDef, localX: number, localY: number): number {
-  let best = -1;
-  let bestDist = Infinity;
-  for (let t = 0; t < level.shelves.length; t++) {
-    const width = level.shelves[t].slots * W3.slot;
-    if (Math.abs(localX) > width / 2 + W3.slot * 0.75) continue;
-    const d = Math.abs(localY - cargoCentreY(t));
-    if (d < bestDist) {
-      bestDist = d;
-      best = t;
-    }
-  }
-  return bestDist <= W3.tier * 0.72 ? best : -1;
 }
 
 /**
