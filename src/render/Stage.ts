@@ -31,6 +31,13 @@ export interface StageOptions {
   quality: QualityPref;
 }
 
+/**
+ * The drawing context went away ('lost') or came back ('restored'). Only the
+ * 3D stage reports these: a WebGL context loss, or a shader that fails to
+ * compile mid-game (reported as 'lost', never followed by 'restored').
+ */
+export type StageContextEvent = 'lost' | 'restored';
+
 export interface Stage {
   readonly mode: RenderMode;
   readonly canvas: HTMLCanvasElement;
@@ -45,6 +52,13 @@ export interface Stage {
   setQuality(q: QualityPref): void;
   /** True after sustained slow frames even at the lowest profile (3D only). */
   readonly struggling: boolean;
+
+  /**
+   * Subscribes to context loss / restore (see StageContextEvent). Returns the
+   * unsubscribe function. The 2D stage never reports anything (a 2D canvas
+   * restores itself and is redrawn every frame).
+   */
+  onContextEvent(cb: (e: StageContextEvent) => void): () => void;
 
   /**
    * Draws one frame. Called by the app loop after game updates. Advances

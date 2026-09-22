@@ -145,6 +145,12 @@ export function isShared(x: THREE.Material | THREE.Texture): boolean {
   return sharedMat.has(x as THREE.Material) || sharedCargo.has(x);
 }
 
+/** Asks every shared material to rebuild its program (after a renderer-wide change such as shadows on/off). */
+export function refreshSharedMaterials() {
+  for (const m of sharedMat) m.needsUpdate = true;
+  for (const x of sharedCargo) if ((x as THREE.Material).isMaterial) (x as THREE.Material).needsUpdate = true;
+}
+
 /**
  * Frees every shared material and texture. Called once by the stage on
  * teardown. `MAT` objects stay usable (a later renderer re-uploads them); the

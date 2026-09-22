@@ -95,6 +95,8 @@ export class Particles {
   private soft: Pool;
   private chip: Pool;
   private c = new THREE.Color();
+  /** Share of each requested burst that is emitted (the quality profile's particle budget). */
+  private budget = 1;
 
   constructor(scene: THREE.Scene) {
     this.soft = makePool(glowTexture(), true);
@@ -103,7 +105,13 @@ export class Particles {
   }
 
   emit(kind: Burst, at: THREE.Vector3, count: number, tint?: number) {
-    for (let i = 0; i < count; i++) this.spawn(kind, at, tint);
+    const n = count > 0 ? Math.max(1, Math.round(count * this.budget)) : 0;
+    for (let i = 0; i < n; i++) this.spawn(kind, at, tint);
+  }
+
+  /** 0..1: lower quality profiles emit fewer particles per burst (at least one). */
+  setBudget(share: number) {
+    this.budget = Math.min(1, Math.max(0.05, share));
   }
 
   private spawn(kind: Burst, at: THREE.Vector3, tint?: number) {
