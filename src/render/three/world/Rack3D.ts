@@ -7,6 +7,8 @@
 import * as THREE from 'three';
 import { MAX_TILT_DEG, W3 } from '../../../game/config';
 import type { LevelDef, PackageType } from '../../../game/levels/types';
+import { drawIcon } from '../../art/icons';
+import type { IconKind } from '../../art/icons';
 import { MAT } from '../Materials';
 import { disposeTree } from '../dispose';
 import { nearestShelf, rackHalfWidth, rackTopY } from '../../layout';
@@ -15,7 +17,30 @@ import type { Tweens } from '../../Tween';
 import type { Cargo3D } from './Cargo3D';
 import { Shelf3D } from './Shelf3D';
 
-export type GhostKind = 'ok' | 'crush' | 'bad';
+export type GhostKind = 'ok' | 'crush' | 'bad' | 'hint';
+
+/** Per ghost kind: its material and the icon decal that says the same without colour (as in 2D). */
+const GHOST_LOOK: Record<GhostKind, { mat: THREE.Material; icon: IconKind; color: string }> = {
+  ok: { mat: MAT.ghostOk, icon: 'ok', color: '#3fd68a' },
+  crush: { mat: MAT.ghostWarn, icon: 'crush', color: '#f5c451' },
+  bad: { mat: MAT.ghostBad, icon: 'bad', color: '#ff5f57' },
+  hint: { mat: MAT.ghostHint, icon: 'hint', color: '#ffc93c' },
+};
+
+/** Icon decal size in world units. */
+const ICON_SIZE = 0.44;
+
+function iconTexture(kind: GhostKind): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = 128;
+  c.height = 128;
+  const ctx = c.getContext('2d') as CanvasRenderingContext2D;
+  const look = GHOST_LOOK[kind];
+  drawIcon(ctx, look.icon, 64, 64, 56, look.color);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
 
 /** What the crush-column overlay needs to know about a stowed package. */
 export interface StowedCargo {
@@ -32,6 +57,10 @@ export class Rack3D {
   readonly topY: number;
 
   private ghost: THREE.Mesh;
+  /** The ghost's kind icon, drawn over everything (it rides the top edge, clear of a package in hand). */
+  private ghostIcon: THREE.Mesh;
+  private ghostIconMat: THREE.MeshBasicMaterial;
+  private iconTex = new Map<GhostKind, THREE.CanvasTexture>();
   /** Faint outline of a held package's committed slot. */
   private home = new THREE.Group();
   private columns = new THREE.Group();
@@ -93,6 +122,10 @@ export class Rack3D {
     this.ghost = new THREE.Mesh(new THREE.BoxGeometry(1, W3.cargoH, W3.cargoD), MAT.ghostOk);
     this.ghost.visible = false;
     this.ghost.renderOrder = 7;
+    this.ghostIconMat = new THREE.MeshBasicMaterial({ transparent: true, depthTest: false, depthWrite: false });
+    this.ghostIcon = new THREE.Mesh(new THREE.PlaneGeometry(ICON_SIZE, ICON_SIZE), this.ghostIconMat);
+    this.ghostIcon.visible = false;
+    this.ghostIcon.renderOrder = 60;
 
     const homeBox = new THREE.BoxGeometry(1, W3.cargoH, W3.cargoD);
     const homeFill = new THREE.Mesh(homeBox, MAT.homeFill);
@@ -101,7 +134,7 @@ export class Rack3D {
     homeEdge.renderOrder = 6;
     this.home.add(homeFill, homeEdge);
     this.home.visible = false;
-    this.group.add(this.ghost, this.home, this.columns);
+    this.group.add(this.ghost, this.ghostIcon, this.home, this.columns);
 
     parent.add(this.group);
   }
@@ -132,19 +165,33 @@ export class Rack3D {
 
   // --- overlays -------------------------------------------------------------
 
+  /** Outline of every cell a package `slots` wide would occupy, plus the kind's icon. */
   showGhost(tier: number, slot: number, slots: number, kind: GhostKind) {
     const s = this.shelves[tier];
     if (!s) return this.hideGhost();
-    const mat = kind === 'ok' ? MAT.ghostOk : kind === 'crush' ? MAT.ghostWarn : MAT.ghostBad;
-    this.ghost.material = mat;
+    const look = GHOST_LOOK[kind];
+    this.ghost.material = look.mat;
     const w = slots * W3.slot - W3.cargoGap;
+    const x = s.slotCentreX(slot, slots);
     this.ghost.scale.set(w, 1, 1);
-    this.ghost.position.set(s.slotCentreX(slot, slots), s.cargoCentreY, 0.02);
+    this.ghost.position.set(x, s.cargoCentreY, 0.02);
     this.ghost.visible = true;
+    let tex = this.iconTex.get(kind);
+    if (!tex) {
+      tex = iconTexture(kind);
+      this.iconTex.set(kind, tex);
+    }
+    if (this.ghostIconMat.map !== tex) {
+      this.ghostIconMat.map = tex;
+      this.ghostIconMat.needsUpdate = true;
+    }
+    this.ghostIcon.position.set(x, s.cargoCentreY + W3.cargoH / 2, W3.dragZ + 0.1);
+    this.ghostIcon.visible = true;
   }
 
   hideGhost() {
     this.ghost.visible = false;
+    this.ghostIcon.visible = false;
   }
 
   /** Marks the slot a held package still occupies in the rules. */
@@ -193,11 +240,12 @@ export class Rack3D {
     this.wobble = danger ? 1 : 0;
   }
 
-  tick(dtMs: number) {
+  /** Eases the lean; `still` (reduced motion) drops the danger wobble. */
+  tick(dtMs: number, still = false) {
     if (this.collapsing) return;
     const k = 1 - Math.pow(0.0015, dtMs / 1000);
     let target = this.targetRoll;
-    if (this.wobble > 0) {
+    if (this.wobble > 0 && !still) {
       this.wobblePhase += dtMs / 1000;
       target += Math.sin(this.wobblePhase * 11) * 0.55 * (Math.PI / 180);
     }
@@ -239,6 +287,8 @@ export class Rack3D {
     disposeTree(this.group);
     // Not reachable through the tree when no crush band is showing.
     this.columnMat.dispose();
+    for (const t of this.iconTex.values()) t.dispose();
+    this.iconTex.clear();
   }
 
   /** Ends the danger wobble (the shipment is over). */

@@ -30,6 +30,10 @@ import { refreshSharedMaterials, releaseSharedMaterials } from './Materials';
 import { Particles } from './Particles';
 import { ThreeGameView } from './ThreeGameView';
 
+/** Bloom strength, and the softer glow used under reduced motion. */
+const BLOOM = 0.38;
+const BLOOM_REDUCED = 0.2;
+
 /** Extra camera placement applied after the framing solve (and again on every resize). */
 export type FramingAdjust = (camera: THREE.PerspectiveCamera) => void;
 
@@ -55,7 +59,7 @@ export class ThreeStage implements Stage {
   /** Quality preference plus the adaptive ladder (render/quality.ts). */
   private governor: QualityGovernor;
   private applied: QualityProfile | null = null;
-  private reducedMotion: boolean;
+  private reduced: boolean;
   private contextLost = false;
   private shaderFailed = false;
   private started = false;
@@ -72,7 +76,7 @@ export class ThreeStage implements Stage {
     opts: Partial<StageOptions> = {},
   ) {
     this.governor = new QualityGovernor(opts.quality ?? 'auto');
-    this.reducedMotion = opts.reducedMotion ?? false;
+    this.reduced = opts.reducedMotion ?? false;
     try {
       this.gl = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     } catch (e) {
@@ -98,11 +102,17 @@ export class ThreeStage implements Stage {
 
       this.composer = new EffectComposer(gl);
       this.composer.addPass(new RenderPass(this.scene, this.camera));
-      this.bloom = new UnrealBloomPass(new THREE.Vector2(parent.clientWidth, parent.clientHeight), 0.38, 0.65, 0.86);
+      this.bloom = new UnrealBloomPass(
+        new THREE.Vector2(parent.clientWidth, parent.clientHeight),
+        this.reduced ? BLOOM_REDUCED : BLOOM,
+        0.65,
+        0.86,
+      );
       this.composer.addPass(this.bloom);
       this.composer.addPass(new OutputPass());
 
       this.particles = new Particles(this.scene);
+      this.particles.reduced = this.reduced;
       this.applyProfile(this.governor.profile);
       window.addEventListener('resize', this.onResize);
 
@@ -121,6 +131,11 @@ export class ThreeStage implements Stage {
 
   get canvas(): HTMLCanvasElement {
     return this.gl.domElement;
+  }
+
+  /** Reduced motion in force: views drop wobble, judder and pulses, and keep effects small. */
+  get reducedMotion(): boolean {
+    return this.reduced;
   }
 
   get struggling(): boolean {
@@ -154,8 +169,11 @@ export class ThreeStage implements Stage {
   }
 
   setReducedMotion(on: boolean) {
-    this.reducedMotion = on;
+    this.reduced = on;
     if (on) this.shakeUntil = 0;
+    if (this.disposed) return;
+    this.particles.reduced = on;
+    this.bloom.strength = on ? BLOOM_REDUCED : BLOOM;
   }
 
   /** low / high are fixed profiles; auto starts at high and steps down on sustained slow frames. */
@@ -308,7 +326,7 @@ export class ThreeStage implements Stage {
   }
 
   shake(amplitude: number, ms: number) {
-    if (this.reducedMotion) return;
+    if (this.reduced) return;
     this.shakeAmp = Math.max(this.shakeAmp, amplitude);
     this.shakeUntil = Math.max(this.shakeUntil, performance.now() + ms);
   }

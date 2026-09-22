@@ -1,6 +1,11 @@
 /**
  * One piece of cargo as a mesh. Materials are cloned per instance so a single
  * box can pulse, crack or fade without touching its neighbours.
+ *
+ * `mesh` is the placement root the view moves, scales and re-parents; the box
+ * itself is `body`, a child (picking hits the body). Keeping them apart lets
+ * the tap-selection lift and rim ride on the body without fighting the
+ * position tweens on the root.
  */
 
 import * as THREE from 'three';
@@ -13,11 +18,20 @@ import type { Tweens } from '../../Tween';
 
 export type CargoState = 'queued' | 'dragging' | 'placed' | 'falling';
 
+/** Visual lift of a tap-selected package (world units, same as the 2D view). */
+export const SELECT_LIFT = 0.12;
+
+const RIM_SELECT = 0x8cc4ff;
+const RIM_SPOT = 0xffc93c;
+
 export class Cargo3D {
   readonly id: number;
   readonly type: PackageType;
   readonly spec: PackageSpec;
-  readonly mesh: THREE.Mesh;
+  /** Placement root: position, scale, rotation, parent and visibility. */
+  readonly mesh: THREE.Group;
+  /** The box (materials, shadows, picking). */
+  readonly body: THREE.Mesh;
   /** Width in world units. */
   readonly width: number;
 
@@ -30,6 +44,11 @@ export class Cargo3D {
   private frontCracked?: THREE.MeshStandardMaterial;
   private hintStop?: () => void;
   private crackStop?: () => void;
+  /** Back-face shell a little larger than the box: the selection / spotlight outline. */
+  private rim: THREE.Mesh;
+  private rimMat: THREE.MeshBasicMaterial;
+  private rimStop?: () => void;
+  private rimKind: 'select' | 'spot' | null = null;
 
   constructor(
     private tweens: Tweens,
@@ -48,9 +67,26 @@ export class Cargo3D {
     for (const m of this.mats) m.transparent = true;
 
     const geo = new THREE.BoxGeometry(this.width, W3.cargoH, W3.cargoD);
-    this.mesh = new THREE.Mesh(geo, this.mats);
-    this.mesh.castShadow = true;
-    this.mesh.receiveShadow = true;
+    this.body = new THREE.Mesh(geo, this.mats);
+    this.body.castShadow = true;
+    this.body.receiveShadow = true;
+    this.body.userData.cargoId = id;
+
+    this.rimMat = new THREE.MeshBasicMaterial({
+      color: RIM_SELECT,
+      side: THREE.BackSide,
+      transparent: true,
+      opacity: 0.95,
+      depthWrite: false,
+    });
+    const pad = 0.09;
+    this.rim = new THREE.Mesh(new THREE.BoxGeometry(this.width + pad * 2, W3.cargoH + pad * 2, W3.cargoD + pad), this.rimMat);
+    this.rim.visible = false;
+    this.rim.renderOrder = 8;
+    this.body.add(this.rim);
+
+    this.mesh = new THREE.Group();
+    this.mesh.add(this.body);
     this.mesh.userData.cargoId = id;
   }
 
@@ -69,11 +105,11 @@ export class Cargo3D {
     this.tweens.add(this.mesh.scale, { x: s, y: s, z: s }, { ms: 120, ease: Easing.backOut });
   }
 
-  /** Squash-and-stretch on touchdown. Heavier cargo squashes harder. */
-  landBounce(strength = 1) {
+  /** Squash-and-stretch on touchdown. Heavier cargo squashes harder; `gentle` for reduced motion. */
+  landBounce(strength = 1, gentle = false) {
     this.tweens.kill(this.mesh.scale);
     this.mesh.scale.set(1, 1, 1);
-    const sq = Math.min(0.28, 0.1 + strength * 0.035);
+    const sq = Math.min(0.28, 0.1 + strength * 0.035) * (gentle ? 0.4 : 1);
     this.tweens.add(this.mesh.scale, { x: 1 + sq, y: 1 - sq }, {
       ms: 80,
       ease: Easing.quadOut,
@@ -86,15 +122,15 @@ export class Cargo3D {
     });
   }
 
-  /** Fragile cargo under load: cracked face and a nervous judder. */
-  setCracking(on: boolean) {
+  /** Fragile cargo under load: cracked face and (unless `still`) a nervous judder. */
+  setCracking(on: boolean, still = false) {
     if (!this.frontCracked) return;
     if (on === !!this.crackStop) return;
     if (on) {
       this.mats[4] = this.frontCracked;
-      this.mesh.material = this.mats;
-      const rot = this.mesh.rotation;
-      const stop = this.tweens.add(rot, { z: 0.03 }, { ms: 70, yoyo: true, repeat: -1 });
+      this.body.material = this.mats;
+      const rot = this.body.rotation;
+      const stop = still ? () => undefined : this.tweens.add(rot, { z: 0.03 }, { ms: 70, yoyo: true, repeat: -1 });
       this.crackStop = () => {
         stop();
         rot.z = 0;
@@ -103,12 +139,12 @@ export class Cargo3D {
       this.crackStop?.();
       this.crackStop = undefined;
       this.mats[4] = this.frontNormal;
-      this.mesh.material = this.mats;
+      this.body.material = this.mats;
     }
   }
 
-  /** Gold pulse used by the hint system. */
-  setHinted(on: boolean) {
+  /** Gold pulse used by the hint system (a steady glow when `still`). */
+  setHinted(on: boolean, still = false) {
     this.hintStop?.();
     this.hintStop = undefined;
     for (const m of this.mats) m.emissiveIntensity = this.type === 'priority' ? 0.5 : 0;
@@ -116,16 +152,14 @@ export class Cargo3D {
     const gold = new THREE.Color(0xffc93c);
     const saved = this.mats.map((m) => m.emissive.clone());
     for (const m of this.mats) m.emissive.copy(gold);
-    const state = { v: 0 };
-    const stop = this.tweens.add(state, { v: 1 }, {
-      ms: 420,
-      yoyo: true,
-      repeat: -1,
-      ease: Easing.sineInOut,
-      onUpdate: () => {
-        for (const m of this.mats) m.emissiveIntensity = 0.25 + state.v * 0.6;
-      },
-    });
+    const state = { v: 0.6 };
+    const apply = () => {
+      for (const m of this.mats) m.emissiveIntensity = 0.25 + state.v * 0.6;
+    };
+    apply();
+    const stop = still
+      ? () => undefined
+      : this.tweens.add(state, { v: 1 }, { ms: 420, yoyo: true, repeat: -1, ease: Easing.sineInOut, onUpdate: apply });
     this.hintStop = () => {
       stop();
       this.mats.forEach((m, i) => {
@@ -135,9 +169,51 @@ export class Cargo3D {
     };
   }
 
+  /**
+   * Tap-selection look, same as 2D: a blue rim pulses around the box (steady
+   * under reduced motion) and, when `lift`, it rises a little.
+   */
+  setSelected(on: boolean, still = false, lift = true) {
+    this.tweens.kill(this.body.position);
+    this.tweens.add(this.body.position, { y: on && lift ? SELECT_LIFT : 0 }, { ms: 140, ease: Easing.quadOut });
+    if (on) this.showRim('select', still);
+    else if (this.rimKind === 'select') this.hideRim();
+  }
+
+  /** Gold spotlight rim: a loss reason or a tutorial pointing at this package. */
+  setSpotlit(on: boolean, still = false) {
+    if (on) this.showRim('spot', still);
+    else if (this.rimKind === 'spot') this.hideRim();
+  }
+
+  private showRim(kind: 'select' | 'spot', still: boolean) {
+    this.hideRim();
+    this.rimKind = kind;
+    this.rimMat.color.setHex(kind === 'select' ? RIM_SELECT : RIM_SPOT);
+    this.rimMat.opacity = 0.95;
+    this.rim.visible = true;
+    if (still) return;
+    this.rimMat.opacity = 0.55;
+    this.rimStop = this.tweens.add(this.rimMat, { opacity: 1 }, {
+      ms: kind === 'select' ? 450 : 500,
+      yoyo: true,
+      repeat: -1,
+      ease: Easing.sineInOut,
+    });
+  }
+
+  private hideRim() {
+    this.rimStop?.();
+    this.rimStop = undefined;
+    this.rimKind = null;
+    this.rim.visible = false;
+  }
+
   setOpacity(a: number) {
     for (const m of this.mats) m.opacity = a;
     if (this.frontCracked) this.frontCracked.opacity = a;
+    // A spotlit package that shattered keeps its outline where it was.
+    this.rim.visible = this.rimKind === 'spot' || (this.rimKind !== null && a > 0.05);
   }
 
   get opacity() {
@@ -151,11 +227,15 @@ export class Cargo3D {
   dispose() {
     this.hintStop?.();
     this.crackStop?.();
+    this.hideRim();
     this.tweens.kill(this.mesh.position);
     this.tweens.kill(this.mesh.scale);
     this.tweens.kill(this.mesh.rotation);
+    this.tweens.kill(this.body.position);
     this.mesh.removeFromParent();
-    this.mesh.geometry.dispose();
+    this.body.geometry.dispose();
+    this.rim.geometry.dispose();
+    this.rimMat.dispose();
     // While cracked, mats[4] is frontCracked, so the normal front is not in the list.
     for (const m of new Set([...this.mats, this.frontNormal])) m.dispose();
     this.frontCracked?.dispose();

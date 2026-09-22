@@ -65,6 +65,12 @@ export class ThreeGameView implements GameView {
   private target: DropTarget | null = null;
   /** Animation time left on the current hint (0 = none). */
   private hintLeft = 0;
+  /** Tap-selected package. */
+  private selected: Cargo3D | null = null;
+  /** What highlight() points at, and the bobbing marker above it. */
+  private spot: ViewHighlight = null;
+  private marker: THREE.Mesh | null = null;
+  private time = 0;
 
   /** An outcome has been shown; drags and transitions are over. */
   private concluded = false;
@@ -76,6 +82,11 @@ export class ThreeGameView implements GameView {
 
   private get tweens() {
     return this.stage.tweens;
+  }
+
+  /** Reduced motion: no wobble, judder or pulses; effects stay small (the stage caps particles and shake). */
+  private get still(): boolean {
+    return this.stage.reducedMotion;
   }
 
   // ==========================================================================
@@ -117,8 +128,9 @@ export class ThreeGameView implements GameView {
 
   update(dtMs: number) {
     if (!this.mounted) return;
-    this.rack.tick(dtMs);
-    this.conveyor.tick(dtMs);
+    this.time += dtMs;
+    this.rack.tick(dtMs, this.still);
+    this.conveyor.tick(dtMs, this.still);
     this.warehouse.tick(dtMs);
     if (this.dragged) this.updateDrag(dtMs);
     this.updateFalling(dtMs);
@@ -126,6 +138,7 @@ export class ThreeGameView implements GameView {
       this.hintLeft -= dtMs;
       if (this.hintLeft <= 0) this.clearHint();
     }
+    this.placeMarker();
   }
 
   dispose() {
@@ -136,9 +149,17 @@ export class ThreeGameView implements GameView {
     this.stops = [];
     this.dragged = null;
     this.released = null;
+    this.selected = null;
+    this.spot = null;
     this.falling = [];
     for (const c of this.cargo) c.dispose();
     this.cargo = [];
+    if (this.marker) {
+      this.marker.removeFromParent();
+      this.marker.geometry.dispose();
+      (this.marker.material as THREE.Material).dispose();
+      this.marker = null;
+    }
     if (this.mounted) {
       this.rack.dispose();
       this.conveyor.dispose();
@@ -184,9 +205,9 @@ export class ThreeGameView implements GameView {
     this.rack.setBalance(ev.net, this.level.balanceTolerance, this.board.wobble);
     for (const s of this.rack.shelves) {
       s.setLoad(ev.shelfWeights[s.tier]);
-      s.setOverloaded(ev.overloaded.includes(s.tier));
+      s.setOverloaded(ev.overloaded.includes(s.tier), this.still);
     }
-    for (const c of this.cargo) if (c.type === 'fragile') c.setCracking(ev.crushed.includes(c.id));
+    for (const c of this.cargo) if (c.type === 'fragile') c.setCracking(ev.crushed.includes(c.id), this.still);
     this.updateColumns();
   }
 
@@ -277,7 +298,7 @@ export class ThreeGameView implements GameView {
     for (const id of candidates) {
       const c = this.cargo[id];
       if (!c || !c.mesh.visible) continue;
-      if (c.state === 'queued' || c.state === 'placed') meshes.push(c.mesh);
+      if (c.state === 'queued' || c.state === 'placed') meshes.push(c.body);
     }
     const hit = this.stage.pick(p.clientX, p.clientY, meshes);
     return hit ? (hit.userData.cargoId as number) : null;
@@ -287,6 +308,7 @@ export class ThreeGameView implements GameView {
     const c = this.cargo[cargoId];
     if (!c || !this.mounted || this.concluded) return;
     this.clearHint();
+    if (this.selected === c) this.setSelected(null);
     this.dragged = c;
     this.target = null;
     const wasPlaced = c.state === 'placed';
@@ -398,18 +420,27 @@ export class ThreeGameView implements GameView {
     this.rack.hideGhost();
   }
 
-  /** The 3D belt highlight is the DOM "BACK ON THE BELT" overlay the controller owns; nothing to draw here. */
-  setBeltHover(_on: boolean) {}
+  /** The belt glows blue while it is the target being shown (the 2D view draws the same). */
+  setBeltHover(on: boolean) {
+    if (!this.mounted) return;
+    this.conveyor.setHover(on);
+  }
 
-  /** Tap-to-select arrives in A3; nothing selects in this build. */
-  setSelected(_cargoId: number | null) {}
+  setSelected(cargoId: number | null) {
+    const next = cargoId !== null && this.mounted && !this.concluded ? (this.cargo[cargoId] ?? null) : null;
+    if (next === this.selected) return;
+    this.selected?.setSelected(false);
+    this.selected = next;
+    // Like 2D, only a stowed package rises; a belt package gets the rim.
+    next?.setSelected(true, this.still, next.state === 'placed');
+  }
 
   showHint(cargoId: number, target: { shelf: number; slot: number }) {
     const c = this.cargo[cargoId];
     if (!c || !this.mounted) return;
     for (const other of this.cargo) if (other !== c) other.setHinted(false);
-    c.setHinted(true);
-    this.rack.showGhost(target.shelf, target.slot, c.slots, 'ok');
+    c.setHinted(true, this.still);
+    this.rack.showGhost(target.shelf, target.slot, c.slots, 'hint');
     this.hintLeft = HINT_MS;
   }
 
@@ -421,8 +452,60 @@ export class ThreeGameView implements GameView {
     if (had && this.mounted && !this.dragged) this.rack.hideGhost();
   }
 
-  /** Loss-reason and tutorial pointers arrive in A3; nothing highlights in this build. */
-  highlight(_h: ViewHighlight) {}
+  highlight(h: ViewHighlight) {
+    if (!this.mounted) return;
+    for (const c of this.cargo) c.setSpotlit(false);
+    for (const s of this.rack.shelves) s.setSpotlit(false);
+    this.spot = h;
+    if (!h) {
+      if (this.marker) this.marker.visible = false;
+      return;
+    }
+    const still = this.still;
+    if ('shelf' in h) {
+      this.rack.shelves[h.shelf]?.setSpotlit(true, still);
+    } else {
+      for (const id of [h.cargo, ...(h.others ?? [])]) this.cargo[id]?.setSpotlit(true, still);
+    }
+    if (!this.marker) {
+      // A gold arrow pointing down at the highlighted thing (the 2D view draws the same mark).
+      const cone = new THREE.Mesh(
+        new THREE.ConeGeometry(0.16, 0.34, 18),
+        new THREE.MeshBasicMaterial({ color: 0xffc93c, depthTest: false, depthWrite: false, transparent: true }),
+      );
+      cone.rotation.z = Math.PI; // point down
+      cone.renderOrder = 61;
+      this.stage.scene.add(cone);
+      this.marker = cone;
+    }
+    this.placeMarker();
+  }
+
+  /** Keeps the marker above what highlight() points at (the rack leans, packages fall). */
+  private placeMarker() {
+    const m = this.marker;
+    const h = this.spot;
+    if (!m) return;
+    if (!h || !this.mounted) {
+      m.visible = false;
+      return;
+    }
+    let at: THREE.Vector3 | null = null;
+    if ('shelf' in h) {
+      const shelf = this.rack.shelves[h.shelf];
+      if (shelf) at = this.rack.toWorld(new THREE.Vector3(0, shelf.surfaceY + 0.34, W3.plankD / 2));
+    } else {
+      const c = this.cargo[h.cargo];
+      if (c) at = c.worldPosition().add(new THREE.Vector3(0, W3.cargoH / 2 + 0.34, 0));
+    }
+    if (!at) {
+      m.visible = false;
+      return;
+    }
+    const bob = this.still ? 0 : Math.sin((this.time / 1000) * Math.PI * 2) * 0.06;
+    m.position.set(at.x, at.y + bob, at.z);
+    m.visible = true;
+  }
 
   // ==========================================================================
   // Transitions
@@ -483,7 +566,7 @@ export class ThreeGameView implements GameView {
   private landed(c: Cargo3D, tier: number, quiet: boolean, onLanded?: () => void) {
     if (!this.mounted) return;
     const shelf = this.rack.shelves[tier];
-    c.landBounce(c.weight);
+    c.landBounce(c.weight, this.still);
     shelf.flex(c.weight);
     if (!quiet) {
       const at = c.worldPosition();
@@ -520,6 +603,7 @@ export class ThreeGameView implements GameView {
 
   /** Ends any drag: the package in hand snaps to its committed spot so it takes part in the outcome. */
   private settleHand() {
+    this.setSelected(null);
     const c = this.dragged ?? this.released;
     this.dragged = null;
     this.released = null;

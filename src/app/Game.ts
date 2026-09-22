@@ -132,6 +132,7 @@ class GameController implements Screen {
   private hud!: Hud;
   private meter!: Meter;
   private controls!: HTMLElement;
+  private controlsText!: HTMLElement;
   private beltZone!: HTMLElement;
   private dangerEl!: HTMLElement;
 
@@ -202,12 +203,13 @@ class GameController implements Screen {
 
     const hint = btn(t('hud.hint'), () => this.onHint(), 'gold', 'sm');
     hint.dataset.role = 'hint';
+    this.controlsText = el('div', { class: 'hint-text', text: t('hud.controlsHintTap') });
+    this.controlsText.dataset.role = 'controls-text';
     this.controls = el('div', { class: 'controls' }, [
       iconBtn('help', () => this.openLegend(), t('hud.guide')),
-      el('div', { class: 'hint-text', text: t('hud.controlsHint') }),
+      this.controlsText,
       hint,
     ]);
-    this.controls.querySelector('.hint-text')!.setAttribute('style', 'white-space: pre-line');
     this.beltZone = el('div', { class: 'belt-zone' }, [el('span', { text: t('hud.beltZone') })]);
     this.dangerEl = el('div', { id: 'danger' });
     uiRoot().append(this.dangerEl, this.beltZone, this.controls);
@@ -244,6 +246,7 @@ class GameController implements Screen {
           haptics.reject();
         },
         placed: () => this.refresh(),
+        selected: (id) => this.showControlsText(id !== null),
         landed: (id) => this.landingFeedback(id),
         toBelt: () => {
           this.hud.toast(t('toast.backOnBelt'), 'info');
@@ -285,7 +288,7 @@ class GameController implements Screen {
   /** Steps 1-2: cancel any drag (nothing changes in the session), hold the session, drop the view. */
   detachStage() {
     if (!this.viewLive) return;
-    this.interaction.cancel();
+    this.interaction.reset();
     this.pauses.add('switching');
     this.view.dispose();
     this.viewLive = false;
@@ -391,6 +394,12 @@ class GameController implements Screen {
     };
   }
 
+  /** The line next to the buttons: how to play, or what to do with the selected package. */
+  private showControlsText(selected: boolean) {
+    this.controlsText.textContent = selected ? t('hud.selected') : t('hud.controlsHintTap');
+    this.controlsText.classList.toggle('selected', selected);
+  }
+
   /** After every committed command: redraw the board, then the HUD and meter. */
   private refresh() {
     if (this.viewLive) this.view.sync(this.boardView());
@@ -493,8 +502,9 @@ class GameController implements Screen {
 
   private onHint() {
     if (this.session.phase !== 'play') return;
-    // A second finger on HINT mid-drag: the package goes back first (the session refuses hints while one is held).
-    this.interaction.cancel();
+    // A second finger on HINT mid-drag: the package goes back first, and a
+    // selection is let go (the session refuses hints while one is held).
+    this.interaction.reset();
     if (this.session.queue.length === 0) {
       this.hud.toast(t('toast.allStowed'), 'info');
       return;
