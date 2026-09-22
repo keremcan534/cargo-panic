@@ -95,20 +95,45 @@ async function pointOf(page: Page, target: object): Promise<Pt> {
   return p as Pt;
 }
 
-/** Real pointer drag of package `id` to a slot (or the belt); `release: false` leaves it in hand. */
-async function drag(page: Page, id: number, to: Target | 'belt', opts: { release?: boolean } = {}) {
+/** Waits until the harness has drawn `n` more frames (robust on a slow or busy machine). */
+async function frames(page: Page, n = 3) {
+  const f0 = (await page.evaluate(() => (window as any).__harness.frames)) as number;
+  await page.waitForFunction((f) => (window as any).__harness.frames >= f, f0 + n);
+}
+
+/**
+ * Real pointer drag of package `id` to a slot (or the belt); `release: false`
+ * leaves it in hand. Waits on rendered frames and on the view actually aiming
+ * at the destination - never on wall-clock sleeps - so a busy machine cannot
+ * make the release land on a stale target.
+ */
+async function drag(
+  page: Page,
+  id: number,
+  to: Target | 'belt',
+  opts: { release?: boolean; expectAim?: boolean } = {},
+) {
   const type = await page.evaluate((i) => (window as any).__harness.session.level.packages[i] as string, id);
   const from = await pointOf(page, { cargo: id });
   const dest = to === 'belt' ? await pointOf(page, { belt: true }) : await pointOf(page, { ...to, slots: SLOTS[type] });
   await page.mouse.move(from.x, from.y);
   await page.mouse.down();
+  await frames(page, 2);
   await page.mouse.move((from.x + dest.x) / 2, Math.min(from.y, dest.y) - 24, { steps: 5 });
   await page.mouse.move(dest.x, dest.y, { steps: 8 });
-  // The view recomputes its target in update(); let a few frames run before letting go.
-  await page.waitForTimeout(120);
+  // The view recomputes its target in update(): let frames run until it aims where we are.
+  await frames(page, 3);
+  if (opts.expectAim !== false) {
+    const want = to === 'belt' ? { kind: 'belt' } : { kind: 'slot', shelf: to.shelf, slot: to.slot };
+    await page.waitForFunction(
+      (w) => JSON.stringify((window as any).__harness.view.dragTarget()) === JSON.stringify(w),
+      want,
+    );
+  }
   if (opts.release === false) return;
   await page.mouse.up();
-  await page.waitForTimeout(380);
+  await frames(page, 6);
+  await page.waitForTimeout(150);
 }
 
 async function location(page: Page, id: number) {
