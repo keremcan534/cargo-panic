@@ -197,8 +197,10 @@ function sanitizeActive(raw: unknown): ActivePlay | null {
     if (shipment === undefined) return null;
     // The run and the shipment must describe the same wave of the same shift.
     if (shipment) {
-      const src = shipment.source as { mode?: unknown; seed?: unknown; wave?: unknown };
-      if (src.mode !== 'endless' || src.seed !== run.seed || src.wave !== run.wave) return null;
+      const src = shipment.source as { mode?: unknown; runId?: unknown; seed?: unknown; wave?: unknown };
+      if (src.mode !== 'endless' || src.runId !== run.runId || src.seed !== run.seed || src.wave !== run.wave) {
+        return null;
+      }
       if (run.rewardedThrough >= run.wave) return null;
     }
     return {

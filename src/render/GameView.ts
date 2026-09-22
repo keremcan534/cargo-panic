@@ -92,13 +92,20 @@ export interface GameView {
   beginDrag(cargoId: number, p: PointerSample): void;
   moveDrag(p: PointerSample): void;
   /**
-   * Target under the dragged package, recomputed by update(): the belt when
-   * the pointer is over the belt area in this view's projection, else the
-   * slot under the package's on-screen position (via the shared hit-test in
-   * render/layout.ts), else null.
+   * Target under the dragged package, recomputed by update(). Order:
+   *   1. the slot under the package's DRAWN centre (after touch lift and grab
+   *      offset), via the shared hit-test in render/layout.ts;
+   *   2. only if there is none, the belt when the package is over this view's
+   *      belt area;
+   *   3. otherwise null.
+   * A view never answers "belt" while the package it draws sits over a slot.
    */
   dragTarget(): DropTarget | null;
-  /** Target under a tapped point for a package `slots` wide (belt, slot or null). */
+  /**
+   * Target under a tapped point for a package `slots` wide. Taps have no
+   * lift, so the belt band wins: the belt when the point is on it, else the
+   * slot under the point, else null.
+   */
   targetAt(p: PointerSample, slots: number): DropTarget | null;
   /** Ends the drag visual. The controller follows with cargoPlaced / cargoToBelt / cargoReturn. */
   endDrag(): void;

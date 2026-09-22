@@ -278,7 +278,7 @@ describe('active play consistency', () => {
         rulesetVersion: 2,
         generatorVersion: 1,
         run: { ...run, wave: 4, rewardedThrough: 3 },
-        shipment: shipment({ mode: 'endless', seed: 42, wave: 3 }),
+        shipment: shipment({ mode: 'endless', runId: 'r1', seed: 42, wave: 3 }),
       };
     });
     s.flush();
@@ -296,7 +296,7 @@ describe('active play consistency', () => {
         rulesetVersion: 2,
         generatorVersion: 1,
         run,
-        shipment: shipment({ mode: 'endless', seed: 42, wave: 3 }),
+        shipment: shipment({ mode: 'endless', runId: 'r1', seed: 42, wave: 3 }),
       };
     });
     s.flush();

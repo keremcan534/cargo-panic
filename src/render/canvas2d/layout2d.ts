@@ -14,6 +14,7 @@ import { MAX_TILT_DEG, W3 } from '../../game/config';
 import { PACKAGE_SPECS } from '../../game/levels/types';
 import type { LevelDef, PackageType } from '../../game/levels/types';
 import type { SlotTarget } from '../../game/session/types';
+import type { DropTarget } from '../GameView';
 import { cargoCentreY, FRAME_BAND, nearestShelf, rackHalfWidth, rackTopY, slotCentreX, slotFromX } from '../layout';
 
 export { cargoCentreY, nearestShelf, shelfSurfaceY, slotCentreX, slotFromX } from '../layout';
@@ -120,6 +121,24 @@ export function targetFromLocal(level: LevelDef, local: Point, slots: number): S
   const shelf = nearestShelf(level, local.x, local.y);
   if (shelf < 0) return null;
   return { shelf, slot: slotFromX(level.shelves[shelf].slots, local.x, slots) };
+}
+
+/**
+ * Drag target in 2D from the dragged package's drawn centre (rack-local and
+ * world): a slot wins; the belt only when the package is over no slot and
+ * below the rack floor.
+ */
+export function dragTargetFromLocal(level: LevelDef, local: Point, world: Point, slots: number): DropTarget | null {
+  const slot = targetFromLocal(level, local, slots);
+  if (slot) return { kind: 'slot', ...slot };
+  return world.y < 0 ? { kind: 'belt' } : null;
+}
+
+/** Tap target in 2D: the belt band (below the rack floor) wins, then the slot under the point. */
+export function tapTargetFromLocal(level: LevelDef, local: Point, world: Point, slots: number): DropTarget | null {
+  if (world.y < 0) return { kind: 'belt' };
+  const slot = targetFromLocal(level, local, slots);
+  return slot ? { kind: 'slot', ...slot } : null;
 }
 
 /** Width in world units of a package's box (same gap as the 3D cargo). */

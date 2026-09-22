@@ -9,15 +9,22 @@ import { shipmentScore } from './rules';
 import type { ShipmentOutcome } from './types';
 
 /** Stable id of one wave's reward in one run. */
-export function waveRewardId(run: RunState): string {
+export function waveRewardId(run: Pick<RunState, 'runId' | 'wave'>): string {
   return `endless:${run.runId}:w${run.wave}`;
 }
 
+/** The session source for the run's current wave. */
+export function waveSource(run: RunState) {
+  return { mode: 'endless' as const, runId: run.runId, seed: run.seed, wave: run.wave };
+}
+
 /**
- * Applies the reward for the run's current wave if (and only if) it was won
- * and has not been rewarded yet. Returns the score breakdown either way, and
- * whether anything was applied - a repeated callback, a double tap or a
- * resumed snapshot of an already-rewarded wave changes nothing.
+ * Applies the reward for the run's current wave if (and only if) the outcome
+ * is a win of exactly this run's current wave and that wave has not been
+ * rewarded yet. Returns the score breakdown either way, and whether anything
+ * was applied - a repeated callback, a double tap, an outcome from another
+ * run (a same-seed retry) or a resumed snapshot of an already-rewarded wave
+ * changes nothing.
  */
 export function rewardWave(
   run: RunState,
@@ -25,7 +32,10 @@ export function rewardWave(
   outcome: ShipmentOutcome,
 ): { applied: boolean; result: WaveResult } {
   const result = shipmentScore(level, run.wave, outcome);
-  if (outcome.result !== 'won' || run.rewardedThrough >= run.wave) return { applied: false, result };
+  const src = outcome.source;
+  const ours =
+    src.mode === 'endless' && src.runId === run.runId && src.seed === run.seed && src.wave === run.wave;
+  if (outcome.result !== 'won' || !ours || run.rewardedThrough >= run.wave) return { applied: false, result };
   run.score += result.total;
   run.stowed += level.packages.length;
   if (result.clean) run.cleanWaves++;

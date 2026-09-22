@@ -547,6 +547,7 @@ export class GameSession {
     this.undoFrame = null;
     const outcome: ShipmentOutcome = {
       result,
+      source: { ...this.source },
       ruleset: RULESET_VERSION,
       placements: this.board.list.map((p) => ({ ...p })),
       imbalance: this.evalCache.imbalance,
@@ -650,6 +651,8 @@ function isConsistent(level: LevelDef, snap: ShipmentSnapshot): boolean {
   if (!snap.assists || !isCount(snap.assists.hints) || !isCount(snap.assists.undos)) return false;
   if (!isCount(snap.rejectedDrops) || !isCount(snap.undoLeft)) return false;
   if (!snap.source || (snap.source.mode !== 'campaign' && snap.source.mode !== 'endless')) return false;
+  if (snap.source.mode === 'endless' && typeof snap.source.runId !== 'string') return false;
+  if (snap.outcome && JSON.stringify(snap.outcome.source) !== JSON.stringify(snap.source)) return false;
   if (!validBoard(level, snap.placements, snap.queue)) return false;
   if (!validHazards(level, snap.hazards)) return false;
   if (snap.undo !== null && snap.undo !== undefined) {
