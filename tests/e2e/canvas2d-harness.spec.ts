@@ -51,7 +51,16 @@ test.beforeAll(async () => {
   // afterAll can stop it for certain instead of orphaning it.
   server = spawn(
     process.execPath,
-    [resolve('node_modules/vite/bin/vite.js'), '--port', String(PORT), '--strictPort', '--host', '127.0.0.1'],
+    [
+      resolve('node_modules/vite/bin/vite.js'),
+      '--config',
+      resolve('tests/harness/vite.config.ts'),
+      '--port',
+      String(PORT),
+      '--strictPort',
+      '--host',
+      '127.0.0.1',
+    ],
     { cwd: process.cwd(), stdio: 'ignore', detached: true },
   );
   const deadline = Date.now() + 60_000;
