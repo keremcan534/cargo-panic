@@ -1,40 +1,129 @@
 /**
- * Entry point. One stage (Three.js in this build) under one DOM UI root, one
- * frame loop, plus the browser gesture lockdown a full-screen touch game needs.
+ * Entry point. Reads the player's view preference, makes the one Stage for
+ * it through the StageHost (three.js is only loaded, by dynamic import, when
+ * that preference is 3D - see render/createStage.ts), then starts the frame
+ * loop and the screens. Plus the browser gesture lockdown a full-screen
+ * touch game needs.
+ *
+ * Nothing in this module's static import graph reaches three.js; the
+ * architecture test checks that.
  */
 
 import './style.css';
 import { App } from './app/App';
 import { FrameLoop } from './app/FrameLoop';
+import { StageHost } from './app/StageHost';
 import { audio } from './game/systems/AudioManager';
-import { ThreeStage } from './render/three/ThreeStage';
+import { progress } from './game/systems/ProgressManager';
+import { t } from './i18n';
+import type { RenderMode } from './render/GameView';
+import type { StageOptions } from './render/Stage';
+import type { ThreeStage } from './render/three/ThreeStage';
+import { showNotice } from './ui/Notice';
 import { splashScreen } from './ui/Splash';
 
-const root = document.getElementById('game-root') as HTMLElement;
-const stage = new ThreeStage(root);
-const loop = new FrameLoop();
-const app = new App(stage, loop);
-
-// Retire the pre-render HTML splash now that we can paint.
-const boot = document.getElementById('boot-splash');
-if (boot) {
-  boot.classList.add('hidden');
-  window.setTimeout(() => boot.remove(), 500);
+/** The saved reduced-motion choice, or the system setting when there is none. */
+function reducedMotion(): boolean {
+  const saved = progress.settings.reducedMotion;
+  if (saved !== null) return saved;
+  try {
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  } catch {
+    return false;
+  }
 }
 
-app.start();
-app.router.go(splashScreen);
-
-// Browser tests (`?e2e`) and dev builds can read GPU resource counts, to catch leaks across screens.
-if (import.meta.env.DEV || new URLSearchParams(window.location.search).has('e2e')) {
-  (window as unknown as { __cargoPanicGpu: () => Record<string, number> }).__cargoPanicGpu = () => ({
-    geometries: stage.gl.info.memory.geometries,
-    textures: stage.gl.info.memory.textures,
-    programs: stage.gl.info.programs?.length ?? 0,
-    sceneChildren: stage.scene.children.length,
-    frames: loop.frames,
-  });
+function stageOptions(): StageOptions {
+  return { reducedMotion: reducedMotion(), quality: progress.settings.quality };
 }
+
+function debugHooksEnabled(): boolean {
+  return import.meta.env.DEV || new URLSearchParams(window.location.search).has('e2e');
+}
+
+interface AppProbe {
+  /** Renderer drawing now. */
+  readonly mode: RenderMode;
+  /** The player's stored preference. */
+  readonly preference: RenderMode;
+  readonly busy: boolean;
+  /** Stage switches requested so far. */
+  readonly generation: number;
+  readonly frames: number;
+  readonly loopSubscribers: number;
+  readonly canvases: number;
+}
+
+declare global {
+  interface Window {
+    __cargoPanicApp?: AppProbe;
+    __cargoPanicGpu?: () => Record<string, number | string>;
+  }
+}
+
+async function boot() {
+  const root = document.getElementById('game-root') as HTMLElement;
+  const loop = new FrameLoop();
+  const host = new StageHost(loop, root, stageOptions);
+  const first = await host.boot(progress.settings.renderMode);
+  const app = new App(host, loop);
+
+  // Retire the pre-render HTML splash now that we can paint.
+  const bootSplash = document.getElementById('boot-splash');
+  if (bootSplash) {
+    bootSplash.classList.add('hidden');
+    window.setTimeout(() => bootSplash.remove(), 500);
+  }
+
+  app.start();
+  app.router.go(splashScreen);
+  // 3D was preferred but could not start: say so once; the preference stays 3D.
+  if (first.fellBack) showNotice(t('render.fallback2d'));
+
+  if (debugHooksEnabled()) {
+    window.__cargoPanicApp = Object.freeze({
+      get mode() {
+        return host.mode;
+      },
+      get preference() {
+        return progress.settings.renderMode;
+      },
+      get busy() {
+        return host.busy;
+      },
+      get generation() {
+        return host.generation;
+      },
+      get frames() {
+        return loop.frames;
+      },
+      get loopSubscribers() {
+        return loop.subscribers;
+      },
+      get canvases() {
+        return document.querySelectorAll('canvas').length;
+      },
+    });
+    // GPU resource counts, to catch leaks across screens (3D only; 2D reports the mode and frames).
+    window.__cargoPanicGpu = (): Record<string, number | string> => {
+      const stage = host.stageOrNull;
+      if (!stage || stage.mode !== '3d') return { mode: host.mode, frames: loop.frames };
+      const three = stage as ThreeStage;
+      return {
+        mode: '3d',
+        geometries: three.gl.info.memory.geometries,
+        textures: three.gl.info.memory.textures,
+        programs: three.gl.info.programs?.length ?? 0,
+        sceneChildren: three.scene.children.length,
+        frames: loop.frames,
+      };
+    };
+  }
+}
+
+void boot().catch((e) => {
+  console.error('[cargo-panic] could not start', e);
+});
 
 // --- browser gesture lockdown ----------------------------------------------
 const stop = (e: Event) => e.preventDefault();
