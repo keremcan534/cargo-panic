@@ -149,6 +149,15 @@ interface Drag {
   origin: Loc;
 }
 
+/**
+ * The 2D rack leans on its low-side foot, so its high corner rises about twice
+ * as far as the 3D rack's (which pivots on its centre). At the shared angle
+ * that corner reached into the balance meter on small phones. The lean is a
+ * cue - the meter is the exact readout - so 2D shows it at 55%. Hit-testing
+ * uses the same drawn angle, so targets still match what is on screen.
+ */
+const LEAN_2D_SCALE = 0.55;
+
 function sameLoc(a: Loc, b: Loc): boolean {
   if (a.at !== b.at) return false;
   if (a.at === 'shelf' && b.at === 'shelf') return a.shelf === b.shelf && a.slot === b.slot;
@@ -351,7 +360,7 @@ export class Canvas2DGameView implements GameView, Layer2D {
       this.columns = [];
       return;
     }
-    if (!this.collapsing) this.tiltTarget = tiltFor(ev.net, level.balanceTolerance);
+    if (!this.collapsing) this.tiltTarget = tiltFor(ev.net, level.balanceTolerance) * LEAN_2D_SCALE;
     this.wobble = !this.frozen && board.wobble;
     for (let t = 0; t < level.shelves.length; t++) {
       this.setLoad(t, ev.shelfWeights[t] ?? 0);
