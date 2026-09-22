@@ -69,6 +69,16 @@ class Audio {
     }
   }
 
+  /** Silences everything immediately (app backgrounded, ad shown). */
+  suspend() {
+    if (this.ctx && this.ctx.state === 'running') void this.ctx.suspend();
+  }
+
+  /** Allows sound again; the context restarts on the next user gesture if the browser needs one. */
+  resume() {
+    if (this.ctx && this.ctx.state === 'suspended') void this.ctx.resume();
+  }
+
   setEnabled(on: boolean) {
     progress.setSound(on);
     if (on) this.unlock();
