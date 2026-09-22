@@ -33,29 +33,32 @@ export function blockingReason(level: LevelDef, placedCount: number, ev: BoardEv
 }
 
 /**
- * Campaign stars (ruleset 1, unchanged from the pre-refactor game): three
- * for a finish within 40% of the limit with no hint and no refused drop; two
- * otherwise; one after three or more refused drops.
+ * Campaign stars, ruleset 2. Three for a finish within 40% of the limit with
+ * no hint; two otherwise. Refused drops never cost stars (a mis-aimed drop is
+ * an input slip, not a strategic mistake), and undo is a convenience that
+ * does not cap stars. Ruleset 1 also docked stars for refused drops.
  */
 export function campaignStars(o: ShipmentOutcome): number {
-  let stars = 3;
-  if (o.assists.hints > 0 || o.rejectedDrops > 0 || o.imbalance > o.limit * 0.4) stars = 2;
-  if (o.rejectedDrops >= 3) stars = 1;
-  return stars;
+  if (o.assists.hints > 0) return 2;
+  return o.imbalance > o.limit * 0.4 ? 2 : 3;
 }
 
 export function manifestWeight(level: LevelDef): number {
   return level.packages.reduce((n, t) => n + PACKAGE_SPECS[t].weight, 0);
 }
 
-/** Endless shipment score (ruleset 1). */
+/**
+ * Endless shipment score, ruleset 2. The clean bonus means "no help this
+ * wave" - no hint and no undo. Refused drops no longer void it.
+ */
 export function shipmentScore(level: LevelDef, wave: number, o: ShipmentOutcome): WaveResult {
   return scoreWave({
     wave,
     manifestWeight: manifestWeight(level),
     imbalance: o.imbalance,
     tolerance: level.balanceTolerance,
-    mistakes: o.rejectedDrops,
+    mistakes: 0,
     hintUsed: o.assists.hints > 0,
+    undoUsed: o.assists.undos > 0,
   });
 }

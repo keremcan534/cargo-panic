@@ -1,7 +1,8 @@
 /**
  * A v1 save written by the previous build migrates in the browser: stars,
  * unlocks and the Endless record survive, the v1 key is untouched and a copy
- * is kept aside.
+ * is kept aside. The v1 Endless record is kept under ruleset 1 ("previous
+ * rules"), never mixed into the current ruleset's records.
  */
 
 import { expect, test } from '@playwright/test';
@@ -27,7 +28,6 @@ test('v1 progress survives the move to save v2', async ({ page }) => {
   await expect(page.locator('[data-role="play"]')).toBeVisible();
   await expect(page.locator('.menu .chip')).toContainText('★ 12 / 75');
   await expect(page.locator('.menu .chip')).toContainText('5 / 25');
-  await expect(page.locator('.menu .caption')).toContainText('4,321');
 
   const stored = await page.evaluate(() => ({
     v1: localStorage.getItem('cargo-panic.save.v1'),
@@ -42,6 +42,7 @@ test('v1 progress survives the move to save v2', async ({ page }) => {
   expect(v2.data.campaign.stars).toEqual({ 1: 3, 2: 3, 3: 2, 4: 3, 5: 1 });
   expect(v2.data.settings.sound).toBe(false);
   expect(v2.data.endless['1']).toEqual(V1.endless);
+  expect(v2.data.endless['2']).toBeUndefined();
 
   // Reload: now read from v2, same numbers.
   await page.reload();

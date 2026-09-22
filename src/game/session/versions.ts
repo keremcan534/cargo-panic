@@ -10,5 +10,10 @@
  * built it.
  */
 
-export const RULESET_VERSION = 1;
+/**
+ * 1 - original game: refused drops cost stars and the clean bonus.
+ * 2 - Phase A: refused drops cost nothing; undo exists and voids only the
+ *     Endless clean bonus; picking cargo up no longer changes the board.
+ */
+export const RULESET_VERSION = 2;
 export const GENERATOR_VERSION = 1;
