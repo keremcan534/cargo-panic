@@ -60,6 +60,15 @@ export class Meter {
     return c * 46;
   }
 
+  /** Client point just under the track at the ghost needle (where the guide points). */
+  ghostAnchor(): { x: number; y: number } | null {
+    const track = this.track.getBoundingClientRect();
+    if (track.width === 0) return null;
+    const on = this.ghost.classList.contains('on');
+    const g = this.ghost.getBoundingClientRect();
+    return { x: on ? g.left + g.width / 2 : track.left + track.width / 2, y: track.bottom + 2 };
+  }
+
   showPreview(net: number) {
     this.ghost.style.transform = `translateX(${(this.pct(net) / 100) * this.track.clientWidth}px)`;
     this.ghost.classList.add('on');

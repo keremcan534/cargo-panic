@@ -35,6 +35,7 @@ import { audio } from '../game/systems/AudioManager';
 import { evaluate } from '../game/systems/BalanceSystem';
 import { haptics } from '../game/systems/Haptics';
 import { requestHint } from '../game/systems/HintService';
+import { hintFor } from '../game/systems/Solver';
 import { progress } from '../game/systems/ProgressManager';
 import { formatScore, newRun } from '../game/systems/RunManager';
 import type { RunState } from '../game/systems/RunManager';
@@ -57,6 +58,9 @@ import {
   WinPanel,
 } from '../ui/Panels';
 import type { FailReason } from '../ui/Panels';
+import { Tutorial } from '../ui/Tutorial';
+import { TutorialFlow } from '../ui/tutorialFlow';
+import type { TutorialStore } from '../ui/tutorialFlow';
 import { viewControls } from '../ui/ViewSettings';
 import { btn, el, fadeIn, fadeOut, iconBtn, uiRoot } from '../ui/dom';
 
@@ -112,6 +116,23 @@ function blockText(r: BlockReason): string {
   }
 }
 
+/** The tutorial flags in the save. */
+const tutorialStore: TutorialStore = {
+  get done() {
+    return progress.tutorial.done;
+  },
+  get skipped() {
+    return progress.tutorial.skipped;
+  },
+  mark: (step) => progress.markTutorial(step),
+  skip: () => progress.setTutorialSkipped(true),
+};
+
+/** Cargo types explained once, the first time one is the live belt package. */
+const EXPLAINED = ['heavy', 'fragile', 'long', 'priority'] as const;
+type ExplainedType = (typeof EXPLAINED)[number];
+const isExplained = (type: string): type is ExplainedType => (EXPLAINED as readonly string[]).includes(type);
+
 /**
  * A shelf as a loss message names it: the bottom one, the top one (on a rack
  * with more than one), otherwise by number from the bottom. `on` is the form
@@ -157,6 +178,11 @@ class GameController implements Screen {
   private beepAccum = 0;
   private beepStep = 0;
   private tip?: TipCard;
+  /** First-encounter cargo explainer; unlike the level tip it stays up while the player grabs. */
+  private cargoTip?: TipCard;
+  private tutorial: Tutorial | null = null;
+  /** Level 1 guide: where the demonstration hand takes the live package. */
+  private placeTarget: { shelf: number; slot: number; slots: number } | null = null;
   private waveCard?: WaveClearCard;
   private suggestion?: SuggestCard;
   private pausePanel: PausePanel | null = null;
@@ -240,13 +266,16 @@ class GameController implements Screen {
 
     this.refreshUi();
 
+    this.startTutorial();
     if (this.run) {
       this.tip = new TipCard(this.waveIntro());
       const run = this.run;
       this.after(120, () => prefetchWave(run.seed, run.wave + 1));
-    } else if (this.level.tip) {
+    } else if (this.level.tip && !this.tutorial?.step) {
+      // (A guide step on screen from the start says the same thing, with a pointer.)
       this.tip = new TipCard(levelText(this.level.id, 'tip', this.level.tip));
     }
+    this.explainNewCargo();
 
     // The stable root under the canvas: a view switch replaces the canvas, not this.
     this.surface = document.getElementById('game-root') as HTMLElement;
@@ -269,7 +298,10 @@ class GameController implements Screen {
           audio.invalid();
           haptics.reject();
         },
-        placed: () => this.refresh(),
+        placed: (_id, _quiet, from) => {
+          this.refresh();
+          this.tutorial?.moved(from.at === 'shelf', this.session.placements.length);
+        },
         selected: (id) => this.showControlsText(id !== null),
         landed: (id) => this.landingFeedback(id),
         toBelt: () => {
@@ -293,6 +325,8 @@ class GameController implements Screen {
     this.offAdvanceTap?.();
     for (const t of this.timers) clearTimeout(t);
     this.tip?.dismiss();
+    this.cargoTip?.dismiss();
+    this.tutorial?.dispose();
     this.waveCard?.dismiss();
     this.suggestion?.dismiss();
     if (this.viewLive) this.view.dispose();
@@ -356,6 +390,7 @@ class GameController implements Screen {
     this.helpBtn.setAttribute('aria-label', t('hud.guide'));
     const belt = this.beltZone.querySelector('span');
     if (belt) belt.textContent = t('hud.beltZone');
+    this.tutorial?.relabel();
     if (this.pausePanel) {
       this.pausePanel.dismissNow();
       this.pausePanel = null;
@@ -454,6 +489,62 @@ class GameController implements Screen {
   private refresh() {
     if (this.viewLive) this.view.sync(this.boardView());
     this.refreshUi();
+    this.explainNewCargo();
+  }
+
+  // ==========================================================================
+  // First-session guide and first-encounter cargo
+  // ==========================================================================
+
+  /** Levels 1-3 teach one thing each (see tutorialFlow.ts) unless already done or skipped. */
+  private startTutorial() {
+    if (this.run) return;
+    const flow = new TutorialFlow(this.level.id, tutorialStore);
+    if (!flow.active) return;
+    this.tutorial = new Tutorial(flow);
+    const cur = this.session.current;
+    if (flow.step === 'place' && cur !== null) {
+      // The solver directly: session.hint() would count as an assist.
+      const h = hintFor(this.level, this.session.placements, [...this.session.queue], cur);
+      if (h.kind !== 'stuck') {
+        this.placeTarget = { shelf: h.shelf, slot: h.slot, slots: PACKAGE_SPECS[this.level.packages[cur]].slots };
+      }
+    }
+  }
+
+  private updateTutorial(dtMs: number) {
+    const tut = this.tutorial;
+    if (!tut) return;
+    const s = this.session;
+    tut.update({
+      dtMs,
+      holding: this.interaction.holding !== null,
+      hazard: s.hazard.kind !== null,
+      reducedMotion: document.documentElement.classList.contains('reduced-motion'),
+      pointOf: this.viewLive ? (target) => this.view.clientPointOf(target) : null,
+      live: s.current,
+      placeTarget: this.placeTarget,
+      stowed: s.placements[0]?.id ?? null,
+      ghostNeedle: this.meter.ghostAnchor(),
+    });
+    // The guide's card and the level tip share a spot; the guide wins.
+    if (tut.step) this.tip?.dismiss();
+    if (!tut.alive) this.tutorial = null;
+  }
+
+  /**
+   * The first time a heavy, fragile, long or priority package is the live
+   * belt package - in any mode and level - one short explainer, once ever.
+   */
+  private explainNewCargo() {
+    const cur = this.session.current;
+    if (cur === null || this.session.phase === 'won' || this.session.phase === 'failed') return;
+    const type = this.level.packages[cur];
+    if (!isExplained(type) || progress.tutorial.seenCargo.includes(type)) return;
+    progress.markCargoSeen(type);
+    this.tip?.dismiss();
+    this.cargoTip?.dismiss();
+    this.cargoTip = new TipCard(t(`cargo.${type}.first`), 6500, 'cargo-first');
   }
 
   private refreshUi() {
@@ -497,6 +588,7 @@ class GameController implements Screen {
       this.interaction.update();
     }
     this.meter.tick(animMs);
+    this.updateTutorial(animMs);
     if (this.session.phase !== 'play') return;
 
     const r = this.session.advance(realMs);
@@ -508,6 +600,7 @@ class GameController implements Screen {
     const hazard = r.hazard;
     if (hazard.kind) {
       this.tip?.dismiss();
+      this.cargoTip?.dismiss();
       this.hud.showHazard(hazard.kind, hazard.remaining, hazard.total);
       this.dangerEl.classList.add('on');
       this.runHazardAudio(dt, hazard.urgency);
@@ -537,6 +630,9 @@ class GameController implements Screen {
   private onOutcome(o: ShipmentOutcome) {
     // Whatever is in hand stays where the rules had it; its pointerup is ignored.
     this.interaction.abort();
+    this.tutorial?.end();
+    this.tutorial = null;
+    this.cargoTip?.dismiss();
     this.refreshUndo();
     this.beltZone.classList.remove('on');
     this.meter.hidePreview();

@@ -363,6 +363,34 @@ html, body {
 .suggest .row { display: flex; gap: 10px; justify-content: center; }
 .suggest .btn.sm { flex: 1; height: 48px; font-size: clamp(.85rem, 3.6vw, 1.05rem); }
 
+/* ------------------------------------------------ first-session guide */
+/* Takes no input except SKIP: the board underneath plays as without it. */
+.tutorial { position: absolute; inset: 0; pointer-events: none; z-index: 4; }
+.tutorial[hidden] { display: none; }
+.tutorial .tut-card {
+  position: absolute; left: 50%; transform: translateX(-50%); width: min(94vw, 560px);
+  background: rgba(11,16,23,.96); border: 2px solid var(--gold); border-radius: 16px; padding: 8px 8px 8px 14px;
+  display: flex; align-items: center; gap: 10px; text-align: left; box-shadow: 0 6px 0 rgba(0,0,0,.45);
+  transition: opacity 160ms;
+}
+/* 'place' / 'move': over the meter band (the player is not reading it yet; the card steps aside while
+   a package is in hand). 'preview' points at the meter, so its card sits just below it. */
+.tutorial .tut-card { top: calc(112px + var(--safe-top) + 1.2vh); }
+.tutorial[data-step="preview"] .tut-card { top: calc(206px + var(--safe-top) + 2vh); }
+.tutorial .tut-text { flex: 1; font-size: clamp(.82rem, 3.5vw, 1.05rem); line-height: 1.3; white-space: pre-line; }
+.tutorial .btn.tut-skip { flex: 0 0 auto; pointer-events: auto; min-height: 48px; height: 48px; min-width: 0; width: auto;
+  font-size: clamp(.78rem, 3.2vw, .95rem); padding: 0 .8rem; white-space: normal; line-height: 1.05; max-width: 34%; }
+.tutorial.aside .tut-card, .tutorial.holding:not([data-step="preview"]) .tut-card { visibility: hidden; opacity: 0; }
+.tutorial .tut-hand { position: absolute; left: 0; top: 0; width: 52px; height: 52px; filter: drop-shadow(0 4px 3px rgba(0,0,0,.55)); }
+.tutorial .tut-hand svg { width: 100%; height: 100%; }
+.tutorial.holding .tut-hand, .tutorial.holding .tut-ring { opacity: 0; }
+.tutorial .tut-ring { position: absolute; left: 0; top: 0; width: 64px; height: 64px; margin: -32px 0 0 -32px; border-radius: 50%;
+  border: 4px dashed var(--gold); box-shadow: 0 0 0 3px rgba(11,16,23,.6); }
+.tutorial .tut-arrow { position: absolute; left: 0; top: 0; width: 0; height: 0; margin-left: -13px;
+  border-left: 13px solid transparent; border-right: 13px solid transparent; border-bottom: 20px solid var(--gold);
+  filter: drop-shadow(0 2px 0 rgba(0,0,0,.6)); }
+.tip.cargo-first { border-color: var(--gold); }
+
 /* ------------------------------------------------------- reduced motion */
 /*
  * <html class="reduced-motion"> (the REDUCED MOTION setting, or the system

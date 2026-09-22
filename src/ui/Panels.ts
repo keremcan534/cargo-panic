@@ -483,8 +483,8 @@ export class TipCard {
   private el: HTMLElement;
   private gone = false;
 
-  constructor(text: string, autoMs = 4600) {
-    this.el = el('div', { class: 'tip', text });
+  constructor(text: string, autoMs = 4600, extraClass = '') {
+    this.el = el('div', { class: `tip ${extraClass}`.trim(), text });
     uiRoot().append(this.el);
     setTimeout(() => this.dismiss(), autoMs);
   }
