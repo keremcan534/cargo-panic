@@ -1,191 +1,227 @@
 /**
- * localStorage-backed save file. No backend, no account - if storage is
- * unavailable (private mode, blocked cookies) the game falls back to an
- * in-memory save so play is never interrupted.
+ * The player's persistent progress and settings, as the rest of the game sees
+ * them. Storage, versioning, backups and recovery live in game/save; this is
+ * the gameplay-facing API on top.
+ *
+ * Loaded once at startup. A v1 save is migrated to v2 on first load (the v1
+ * key is left untouched). Anything the player should know about - a recovered
+ * or unreadable save, storage that cannot be written - is queued as a notice
+ * for the UI (`takeSaveNotices` / `onSaveNotice`); nothing is reset silently.
  */
 
 import { TOTAL_LEVELS } from '../levels/levels';
+import { SaveStore } from '../save/SaveStore';
+import type { SaveNotice, SaveStatus } from '../save/SaveStore';
+import type {
+  ActivePlay,
+  EndlessRecord,
+  LanguagePref,
+  QualityPref,
+  RenderModePref,
+  SaveData,
+  Settings,
+  TutorialState,
+} from '../save/schema';
+import { RULESET_VERSION } from '../session/versions';
+import { browserStore } from '../../platform/storage';
 
-const KEY = 'cargo-panic.save.v1';
-
-export interface EndlessStats {
-  bestScore: number;
-  bestWave: number;
-  runs: number;
-}
-
-export interface SaveData {
-  unlocked: number;
-  /** levelId -> best star count (1-3). */
-  stars: Record<number, number>;
-  /** levelId -> lowest finishing imbalance achieved. */
-  bestBalance: Record<number, number>;
-  sound: boolean;
-  haptics: boolean;
-  endless: EndlessStats;
-}
-
-function blank(): SaveData {
-  return {
-    unlocked: 1,
-    stars: {},
-    bestBalance: {},
-    sound: true,
-    haptics: true,
-    endless: { bestScore: 0, bestWave: 0, runs: 0 },
-  };
-}
+export type { EndlessRecord as EndlessStats, SaveNotice };
 
 class Progress {
-  private data: SaveData = blank();
-  private storageOk = true;
+  private store: SaveStore;
 
   constructor() {
-    this.load();
+    this.store = new SaveStore(browserStore(), TOTAL_LEVELS);
+    this.store.load();
   }
 
-  private load() {
-    try {
-      const raw = localStorage.getItem(KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as Partial<SaveData>;
-        const d = blank();
-        if (typeof parsed.unlocked === 'number') {
-          d.unlocked = Math.min(Math.max(1, Math.floor(parsed.unlocked)), TOTAL_LEVELS);
-        }
-        if (parsed.stars && typeof parsed.stars === 'object') {
-          for (const [k, v] of Object.entries(parsed.stars)) {
-            const id = Number(k);
-            if (id >= 1 && id <= TOTAL_LEVELS && typeof v === 'number') {
-              d.stars[id] = Math.min(3, Math.max(0, Math.floor(v)));
-            }
-          }
-        }
-        if (parsed.bestBalance && typeof parsed.bestBalance === 'object') {
-          for (const [k, v] of Object.entries(parsed.bestBalance)) {
-            const id = Number(k);
-            if (id >= 1 && id <= TOTAL_LEVELS && typeof v === 'number' && isFinite(v)) {
-              d.bestBalance[id] = v;
-            }
-          }
-        }
-        if (typeof parsed.sound === 'boolean') d.sound = parsed.sound;
-        if (typeof parsed.haptics === 'boolean') d.haptics = parsed.haptics;
-        // Saves written before Endless mode existed simply lack this block.
-        const e = parsed.endless;
-        if (e && typeof e === 'object') {
-          if (typeof e.bestScore === 'number' && isFinite(e.bestScore)) {
-            d.endless.bestScore = Math.max(0, Math.floor(e.bestScore));
-          }
-          if (typeof e.bestWave === 'number' && isFinite(e.bestWave)) {
-            d.endless.bestWave = Math.max(0, Math.floor(e.bestWave));
-          }
-          if (typeof e.runs === 'number' && isFinite(e.runs)) {
-            d.endless.runs = Math.max(0, Math.floor(e.runs));
-          }
-        }
-        this.data = d;
-      }
-    } catch {
-      this.storageOk = false;
-      this.data = blank();
-    }
+  private get d(): SaveData {
+    return this.store.data;
   }
 
-  private save() {
-    if (!this.storageOk) return;
-    try {
-      localStorage.setItem(KEY, JSON.stringify(this.data));
-    } catch {
-      this.storageOk = false;
-    }
+  // --- save health ------------------------------------------------------------
+
+  get saveStatus(): SaveStatus {
+    return this.store.status;
   }
 
-  get unlocked() {
-    return this.data.unlocked;
+  takeSaveNotices(): SaveNotice[] {
+    return this.store.takeNotices();
+  }
+
+  onSaveNotice(fn: (n: SaveNotice) => void): () => void {
+    return this.store.onNotice(fn);
+  }
+
+  /** Write immediately (lifecycle boundaries: page hidden, app backgrounded). */
+  flush(): boolean {
+    return this.store.flush();
+  }
+
+  // --- settings -----------------------------------------------------------------
+
+  get settings(): Readonly<Settings> {
+    return this.d.settings;
   }
 
   get soundOn() {
-    return this.data.sound;
+    return this.d.settings.sound;
   }
 
   get hapticsOn() {
-    return this.data.haptics;
+    return this.d.settings.haptics;
+  }
+
+  setSound(on: boolean) {
+    this.store.update((d) => (d.settings.sound = on));
+  }
+
+  setHaptics(on: boolean) {
+    this.store.update((d) => (d.settings.haptics = on));
+  }
+
+  setRenderMode(mode: RenderModePref) {
+    this.store.update((d) => (d.settings.renderMode = mode));
+  }
+
+  setQuality(q: QualityPref) {
+    this.store.update((d) => (d.settings.quality = q));
+  }
+
+  /** null follows the system preference. */
+  setReducedMotion(on: boolean | null) {
+    this.store.update((d) => (d.settings.reducedMotion = on));
+  }
+
+  /** null follows the device language. */
+  setLanguage(lang: LanguagePref | null) {
+    this.store.update((d) => (d.settings.language = lang));
+  }
+
+  // --- campaign -------------------------------------------------------------------
+
+  get unlocked() {
+    return this.d.campaign.unlocked;
   }
 
   isUnlocked(levelId: number) {
-    return levelId <= this.data.unlocked;
+    return levelId <= this.d.campaign.unlocked;
   }
 
   starsFor(levelId: number) {
-    return this.data.stars[levelId] ?? 0;
+    return this.d.campaign.stars[levelId] ?? 0;
   }
 
   bestBalanceFor(levelId: number): number | null {
-    const v = this.data.bestBalance[levelId];
+    const v = this.d.campaign.bestBalance[levelId];
     return v === undefined ? null : v;
   }
 
   totalStars() {
     let n = 0;
-    for (const id of Object.keys(this.data.stars)) n += this.data.stars[Number(id)];
+    for (const v of Object.values(this.d.campaign.stars)) n += v;
     return n;
   }
 
   completedCount() {
-    return Object.values(this.data.stars).filter((s) => s > 0).length;
+    return Object.values(this.d.campaign.stars).filter((s) => s > 0).length;
   }
 
-  /** Records a win and reports which personal records it beat. */
+  /** Records a win and reports which personal records it beat. Stars never go down. */
   recordWin(
     levelId: number,
     stars: number,
     imbalance: number,
   ): { starsImproved: boolean; balanceImproved: boolean } {
+    const c = this.d.campaign;
     const starsImproved = stars > this.starsFor(levelId);
-    if (starsImproved || this.data.stars[levelId] === undefined) {
-      this.data.stars[levelId] = Math.max(stars, this.starsFor(levelId));
-    }
-
-    const prevBal = this.data.bestBalance[levelId];
+    const prevBal = c.bestBalance[levelId];
     const balanceImproved = prevBal === undefined || imbalance < prevBal - 1e-9;
-    if (balanceImproved) this.data.bestBalance[levelId] = imbalance;
-
-    if (levelId + 1 <= TOTAL_LEVELS && this.data.unlocked < levelId + 1) {
-      this.data.unlocked = levelId + 1;
-    }
-    this.save();
+    this.store.update((d) => {
+      if (starsImproved || d.campaign.stars[levelId] === undefined) {
+        d.campaign.stars[levelId] = Math.max(stars, d.campaign.stars[levelId] ?? 0);
+      }
+      if (balanceImproved) d.campaign.bestBalance[levelId] = imbalance;
+      if (levelId + 1 <= TOTAL_LEVELS && d.campaign.unlocked < levelId + 1) d.campaign.unlocked = levelId + 1;
+    });
+    this.store.flush();
     return { starsImproved, balanceImproved };
   }
 
-  get endless(): EndlessStats {
-    return this.data.endless;
+  // --- endless ----------------------------------------------------------------------
+
+  /** Records for the current ruleset. */
+  get endless(): EndlessRecord {
+    return this.d.endless[String(RULESET_VERSION)] ?? { bestScore: 0, bestWave: 0, runs: 0 };
   }
 
-  /** Records a finished Endless run. Returns true on a new high score. */
+  /** Best record made under an older ruleset, shown separately as "previous rules". */
+  get previousEndless(): { ruleset: number; record: EndlessRecord } | null {
+    let best: { ruleset: number; record: EndlessRecord } | null = null;
+    for (const [k, r] of Object.entries(this.d.endless)) {
+      const v = Number(k);
+      if (v >= RULESET_VERSION || r.runs === 0) continue;
+      if (!best || v > best.ruleset) best = { ruleset: v, record: r };
+    }
+    return best;
+  }
+
+  /** Records a finished Endless run under the current ruleset. Returns true on a new high score. */
   recordRun(score: number, wave: number): boolean {
-    const e = this.data.endless;
-    e.runs++;
-    const improved = score > e.bestScore;
-    if (improved) e.bestScore = score;
-    if (wave > e.bestWave) e.bestWave = wave;
-    this.save();
+    const key = String(RULESET_VERSION);
+    const improved = score > this.endless.bestScore;
+    this.store.update((d) => {
+      const e = d.endless[key] ?? { bestScore: 0, bestWave: 0, runs: 0 };
+      e.runs++;
+      if (score > e.bestScore) e.bestScore = score;
+      if (wave > e.bestWave) e.bestWave = wave;
+      d.endless[key] = e;
+    });
+    this.store.flush();
     return improved;
   }
 
-  setSound(on: boolean) {
-    this.data.sound = on;
-    this.save();
+  // --- tutorial ----------------------------------------------------------------------
+
+  get tutorial(): Readonly<TutorialState> {
+    return this.d.tutorial;
   }
 
-  setHaptics(on: boolean) {
-    this.data.haptics = on;
-    this.save();
+  markTutorial(step: string) {
+    if (this.d.tutorial.done.includes(step)) return;
+    this.store.update((d) => d.tutorial.done.push(step));
   }
 
-  resetAll() {
-    this.data = blank();
-    this.save();
+  setTutorialSkipped(skipped: boolean) {
+    this.store.update((d) => {
+      d.tutorial.skipped = skipped;
+      if (!skipped) d.tutorial.done = [];
+    });
+  }
+
+  markCargoSeen(type: string) {
+    if (this.d.tutorial.seenCargo.includes(type)) return;
+    this.store.update((d) => d.tutorial.seenCargo.push(type));
+  }
+
+  // --- active play and rewards -----------------------------------------------------------
+
+  get active(): ActivePlay | null {
+    return this.d.active;
+  }
+
+  /** Saves (or clears) the resumable game. Written at the next commit boundary. */
+  setActive(a: ActivePlay | null) {
+    this.store.update((d) => (d.active = a));
+  }
+
+  /** Grants a reward exactly once per id; the effect and the id are written together. */
+  claim(rewardId: string, apply: (d: SaveData) => void): boolean {
+    return this.store.claim(rewardId, apply);
+  }
+
+  hasClaimed(rewardId: string): boolean {
+    return this.store.hasClaimed(rewardId);
   }
 }
 

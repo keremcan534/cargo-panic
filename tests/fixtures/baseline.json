@@ -798,22 +798,27 @@
     {
       "lines": [
         {
+          "key": "cargo",
           "label": "CARGO STOWED",
           "value": 60
         },
         {
+          "key": "shipment",
           "label": "SHIPMENT x1",
           "value": 100
         },
         {
+          "key": "balance",
           "label": "BALANCE",
           "value": 200
         },
         {
+          "key": "perfect",
           "label": "DEAD LEVEL",
           "value": 150
         },
         {
+          "key": "clean",
           "label": "NO FUMBLES",
           "value": 100
         }
@@ -825,14 +830,17 @@
     {
       "lines": [
         {
+          "key": "cargo",
           "label": "CARGO STOWED",
           "value": 240
         },
         {
+          "key": "shipment",
           "label": "SHIPMENT x10",
           "value": 1000
         },
         {
+          "key": "balance",
           "label": "BALANCE",
           "value": 100
         }
@@ -844,14 +852,17 @@
     {
       "lines": [
         {
+          "key": "cargo",
           "label": "CARGO STOWED",
           "value": 300
         },
         {
+          "key": "shipment",
           "label": "SHIPMENT x25",
           "value": 2500
         },
         {
+          "key": "balance",
           "label": "BALANCE",
           "value": 133
         }

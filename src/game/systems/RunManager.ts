@@ -10,17 +10,30 @@
 import { randomSeed } from './Rng';
 
 export interface RunState {
+  /**
+   * Unique per run, including a same-seed retry. Reward ids are built from it,
+   * so a replay of the same shift never looks like a resume of the old one.
+   */
+  runId: string;
   seed: number;
   wave: number;
   score: number;
   /** Packages stowed across the whole run, for the results screen. */
   stowed: number;
-  /** Waves cleared without a single rejected drop. */
+  /** Waves cleared "clean" under the current ruleset (see session/rules.ts). */
   cleanWaves: number;
+  /** Any hint or undo was used in this run. Never cleared. */
+  assisted: boolean;
+  /** Highest wave whose reward has been applied; a wave is rewarded once. */
+  rewardedThrough: number;
 }
 
-export function newRun(seed = randomSeed()): RunState {
-  return { seed, wave: 1, score: 0, stowed: 0, cleanWaves: 0 };
+export function makeRunId(): string {
+  return `${Date.now().toString(36)}-${Math.floor(Math.random() * 0x7fffffff).toString(36)}`;
+}
+
+export function newRun(seed = randomSeed(), runId = makeRunId()): RunState {
+  return { runId, seed, wave: 1, score: 0, stowed: 0, cleanWaves: 0, assisted: false, rewardedThrough: 0 };
 }
 
 /**
@@ -54,11 +67,15 @@ export const SCORE = {
   balanceMax: 200,
   /** Dead level. */
   perfect: 150,
-  /** No rejected drops and no hint during the wave. */
+  /** A wave finished without help (see session/rules.ts for the current definition). */
   clean: 100,
 } as const;
 
+export type ScoreKey = 'cargo' | 'shipment' | 'balance' | 'perfect' | 'clean';
+
 export interface ScoreLine {
+  /** Stable id of the line, for localised labels. */
+  key: ScoreKey;
   label: string;
   value: number;
 }
@@ -78,24 +95,25 @@ export function scoreWave(opts: {
   tolerance: number;
   mistakes: number;
   hintUsed: boolean;
+  undoUsed?: boolean;
 }): WaveResult {
   const lines: ScoreLine[] = [];
 
   const cargo = opts.manifestWeight * SCORE.perWeight;
-  lines.push({ label: 'CARGO STOWED', value: cargo });
+  lines.push({ key: 'cargo', label: 'CARGO STOWED', value: cargo });
 
   const shipment = SCORE.shipmentBase * opts.wave;
-  lines.push({ label: `SHIPMENT x${opts.wave}`, value: shipment });
+  lines.push({ key: 'shipment', label: `SHIPMENT x${opts.wave}`, value: shipment });
 
   const accuracy = Math.max(0, 1 - opts.imbalance / Math.max(opts.tolerance, 0.001));
   const balance = Math.round(SCORE.balanceMax * accuracy);
-  lines.push({ label: 'BALANCE', value: balance });
+  lines.push({ key: 'balance', label: 'BALANCE', value: balance });
 
   const perfect = opts.imbalance < 0.005;
-  if (perfect) lines.push({ label: 'DEAD LEVEL', value: SCORE.perfect });
+  if (perfect) lines.push({ key: 'perfect', label: 'DEAD LEVEL', value: SCORE.perfect });
 
-  const clean = opts.mistakes === 0 && !opts.hintUsed;
-  if (clean) lines.push({ label: 'NO FUMBLES', value: SCORE.clean });
+  const clean = opts.mistakes === 0 && !opts.hintUsed && !opts.undoUsed;
+  if (clean) lines.push({ key: 'clean', label: 'NO FUMBLES', value: SCORE.clean });
 
   const total = lines.reduce((n, l) => n + l.value, 0);
   return { lines, total, perfect, clean };

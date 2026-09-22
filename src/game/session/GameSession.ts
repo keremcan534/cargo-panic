@@ -13,14 +13,17 @@
  *   it, so holding a crate off a red rack does not stop the clock.
  * - Every change is one atomic command: a move either happens completely or
  *   is refused with a reason, and a refused move changes nothing.
+ *
+ * Everything the getters return is a copy or frozen: a view can read the
+ * board but never edit it behind the rules' back.
  */
 
-import { WIN_SETTLE_MS } from '../config';
+import { MAX_FRAME_CATCHUP_MS, MAX_STEP_MS, WIN_SETTLE_MS } from '../config';
 import type { LevelDef } from '../levels/types';
-import { crushersAbove } from '../systems/BalanceSystem';
+import { crushersAbove, evaluate } from '../systems/BalanceSystem';
 import type { BoardEval, Placement } from '../systems/BalanceSystem';
 import { HazardSystem } from '../systems/HazardSystem';
-import type { HazardState } from '../systems/HazardSystem';
+import type { HazardSnapshot, HazardState } from '../systems/HazardSystem';
 import { PlacementSystem } from '../systems/PlacementSystem';
 import { hintFor } from '../systems/Solver';
 import type { Hint } from '../systems/Solver';
@@ -40,6 +43,7 @@ import type {
   TickResult,
   UndoFrame,
 } from './types';
+import { GENERATOR_VERSION, RULESET_VERSION } from './versions';
 
 export interface SessionOptions {
   source: ShipmentSource;
@@ -49,20 +53,31 @@ export interface SessionOptions {
   undoAllowance?: number;
 }
 
+export type RestoreErrorCode = 'level-changed' | 'corrupt' | 'unsupported';
+
 export class SessionRestoreError extends Error {
-  constructor(readonly code: 'level-changed' | 'corrupt') {
+  constructor(readonly code: RestoreErrorCode) {
     super(`cannot restore shipment: ${code}`);
   }
 }
 
-const IDLE_HAZARD: HazardState = {
+const IDLE_HAZARD: HazardState = Object.freeze({
   kind: null,
   remaining: 0,
   total: 1,
   owner: -1,
   urgency: 0,
   expired: false,
-};
+});
+
+const PHASES: readonly SessionPhase[] = ['play', 'paused', 'won', 'failed'];
+
+function freezeEval(ev: BoardEval): BoardEval {
+  Object.freeze(ev.shelfWeights);
+  Object.freeze(ev.overloaded);
+  Object.freeze(ev.crushed);
+  return Object.freeze(ev);
+}
 
 export class GameSession {
   readonly level: LevelDef;
@@ -88,13 +103,14 @@ export class GameSession {
 
   constructor(level: LevelDef, opts: SessionOptions) {
     this.level = level;
-    this.source = opts.source;
+    this.source = Object.freeze({ ...opts.source });
     this.graceScale = opts.graceScale ?? 1;
     this.undoLeftValue = Math.max(0, Math.floor(opts.undoAllowance ?? 0));
     this.board = new PlacementSystem(level);
     this.hazards = new HazardSystem(level, this.graceScale);
     this.queueIds = level.packages.map((_, i) => i);
-    this.evalCache = this.board.evaluate();
+    this.evalCache = freezeEval(this.board.evaluate());
+    this.lastHazard = this.hazards.peek(this.evalCache);
   }
 
   // ==========================================================================
@@ -105,9 +121,9 @@ export class GameSession {
     return this.phaseValue;
   }
 
-  /** Belt order; index 0 is the live package. */
+  /** Belt order; index 0 is the live package. A frozen copy. */
   get queue(): readonly number[] {
-    return this.queueIds;
+    return Object.freeze([...this.queueIds]);
   }
 
   /** Package on the front of the belt, or null when the belt is empty. */
@@ -115,6 +131,7 @@ export class GameSession {
     return this.queueIds[0] ?? null;
   }
 
+  /** Committed placements (frozen objects in a fresh array). */
   get placements(): Placement[] {
     return this.board.list;
   }
@@ -123,7 +140,10 @@ export class GameSession {
     return this.evalCache;
   }
 
-  /** Hazard state as of the last tick. */
+  /**
+   * The hazard clocks as they stand: the last tick's reading, refreshed after
+   * every command, undo and restore, and held (not blanked) while paused.
+   */
   get hazard(): HazardState {
     return this.lastHazard;
   }
@@ -162,7 +182,7 @@ export class GameSession {
   }
 
   get outcome(): ShipmentOutcome | null {
-    return this.outcomeValue;
+    return this.outcomeValue ? cloneOutcome(this.outcomeValue) : null;
   }
 
   locationOf(id: number): CargoLocation | null {
@@ -178,7 +198,7 @@ export class GameSession {
     return this.board.has(id) || this.queueIds[0] === id;
   }
 
-  /** Ids the player may pick up right now. */
+  /** Ids the player may pick up right now: the live belt package first, then stowed ones. */
   movable(): number[] {
     if (this.phaseValue !== 'play') return [];
     const out = this.board.list.map((p) => p.id);
@@ -194,7 +214,13 @@ export class GameSession {
       return { kind: 'bad', rejection, evaluation: null, willCrush: false, willOverload: false };
     }
     const evaluation = this.board.previewEval(type, shelf, slot, id);
-    const willCrush = evaluation.crushed.length > 0;
+    // Only crushes this move would cause count: an existing crush elsewhere must
+    // not paint every target as dangerous while the player is fixing it.
+    const before = evaluate(
+      this.level,
+      this.board.list.filter((p) => p.id !== id),
+    ).crushed;
+    const willCrush = evaluation.crushed.some((c) => !before.includes(c));
     const willOverload = evaluation.overloaded.includes(shelf);
     return {
       kind: willCrush || willOverload ? 'crush' : 'ok',
@@ -221,16 +247,18 @@ export class GameSession {
   /**
    * Marks a package as in the player's hand. The board is untouched; the only
    * effect is that a finished board does not settle into a win while the
-   * player is still holding something.
+   * player is still holding something. Only one package can be held.
    */
   hold(id: number): boolean {
     if (!this.isMovable(id)) return false;
+    if (this.heldId !== null && this.heldId !== id) return false;
     this.heldId = id;
     return true;
   }
 
-  release() {
-    this.heldId = null;
+  /** Lets go of `id` (or of whatever is held when no id is given). */
+  release(id?: number) {
+    if (id === undefined || id === this.heldId) this.heldId = null;
   }
 
   /** Atomically moves a package from the belt or a shelf to a shelf slot. */
@@ -238,11 +266,13 @@ export class GameSession {
     if (this.phaseValue !== 'play') return { ok: false, rejection: 'not-playing' };
     if (!this.isMovable(id)) return { ok: false, rejection: 'not-movable' };
     const from = this.locationOf(id) as CargoLocation;
-    this.heldId = null;
+    this.release(id);
 
     if (from.at === 'shelf' && from.shelf === shelf && from.slot === slot) {
       return { ok: true, changed: false, from };
     }
+    // A malformed target is a caller bug, not a player's refused drop.
+    if (!Number.isInteger(shelf) || !Number.isInteger(slot)) return { ok: false, rejection: 'out-of-bounds' };
     const type = this.level.packages[id];
     const rejection = this.board.check(type, shelf, slot, id);
     if (rejection) {
@@ -262,9 +292,12 @@ export class GameSession {
     if (this.phaseValue !== 'play') return { ok: false, rejection: 'not-playing' };
     const from = this.locationOf(id);
     if (!from) return { ok: false, rejection: 'not-movable' };
-    this.heldId = null;
-    if (from.at === 'belt') return { ok: true, changed: false, from };
-
+    if (from.at === 'belt') {
+      if (from.index !== 0) return { ok: false, rejection: 'not-movable' };
+      this.release(id);
+      return { ok: true, changed: false, from };
+    }
+    this.release(id);
     this.captureUndo();
     this.board.remove(id);
     this.queueIds.unshift(id);
@@ -273,9 +306,14 @@ export class GameSession {
   }
 
   /**
-   * Restores the board, the belt and the hazard clocks to how they were
-   * before the last committed command. Consumes one undo; the assist is
-   * recorded and never erased. Play time and refused drops are not rewound.
+   * Restores the board and the belt to how they were before the last
+   * committed command. Consumes one undo; the assist is recorded and never
+   * erased. Play time and refused drops are not rewound.
+   *
+   * Hazard clocks come back from the snapshot, but a danger that was already
+   * running before the undone command and is still running now keeps the
+   * lower of the two readings - undo takes back a move, it does not buy
+   * extra seconds on a rack that was red all along.
    */
   undo(): boolean {
     if (!this.canUndo || !this.undoFrame) return false;
@@ -284,12 +322,14 @@ export class GameSession {
     this.undoLeftValue--;
     this.assistsValue.undos++;
     this.heldId = null;
+    const now = this.hazards.snapshot();
     this.board.clear();
-    for (const p of f.placements) this.board.place(p.id, p.type, p.shelf, p.slot);
+    for (const p of f.placements) this.board.place(p.id, this.level.packages[p.id], p.shelf, p.slot);
     this.queueIds = [...f.queue];
-    this.hazards.restore(f.hazards);
+    this.hazards.restore(minMerge(f.hazards, now));
     this.winSettleMs = 0;
-    this.evalCache = this.board.evaluate();
+    this.evalCache = freezeEval(this.board.evaluate());
+    this.lastHazard = this.hazards.peek(this.evalCache);
     return true;
   }
 
@@ -318,29 +358,50 @@ export class GameSession {
     return true;
   }
 
-  /** Advances the active-play clock and the hazard clocks. No-op unless playing. */
+  /**
+   * Advances the rules clocks by one step of at most MAX_STEP_MS. No-op unless
+   * playing. Deterministic: the same steps always give the same result.
+   */
   tick(dtMs: number): TickResult {
-    if (this.phaseValue !== 'play' || !(dtMs > 0)) {
-      return { hazard: this.phaseValue === 'play' ? this.lastHazard : IDLE_HAZARD, outcome: null };
+    if (this.phaseValue !== 'play' || !Number.isFinite(dtMs) || dtMs <= 0) {
+      return { hazard: this.phaseValue === 'won' || this.phaseValue === 'failed' ? IDLE_HAZARD : this.lastHazard, outcome: null };
     }
-    this.activeMsValue += dtMs;
-    const hz = this.hazards.update(this.evalCache, dtMs);
+    const dt = Math.min(dtMs, MAX_STEP_MS);
+    this.activeMsValue += dt;
+    const hz = Object.freeze(this.hazards.update(this.evalCache, dt));
     this.lastHazard = hz;
 
     if (hz.kind) {
-      this.dangerMsValue += dtMs;
+      this.dangerMsValue += dt;
       this.winSettleMs = 0;
       if (hz.expired) return { hazard: hz, outcome: this.finish('failed', this.failureFacts(hz)) };
       return { hazard: hz, outcome: null };
     }
 
     if (this.canFinish && this.heldId === null) {
-      this.winSettleMs += dtMs;
+      this.winSettleMs += dt;
       if (this.winSettleMs >= WIN_SETTLE_MS) return { hazard: hz, outcome: this.finish('won') };
     } else {
       this.winSettleMs = 0;
     }
     return { hazard: hz, outcome: null };
+  }
+
+  /**
+   * Charges one animation frame of real time to the rules clocks, in
+   * MAX_STEP_MS steps, so a slow frame rate never buys extra seconds. At most
+   * MAX_FRAME_CATCHUP_MS is charged per call.
+   */
+  advance(realMs: number): TickResult {
+    let left = Number.isFinite(realMs) ? Math.min(Math.max(0, realMs), MAX_FRAME_CATCHUP_MS) : 0;
+    let last = this.tick(0);
+    while (left > 1e-9 && this.phaseValue === 'play') {
+      const step = Math.min(left, MAX_STEP_MS);
+      last = this.tick(step);
+      left -= step;
+      if (last.outcome) break;
+    }
+    return last;
   }
 
   // ==========================================================================
@@ -350,6 +411,8 @@ export class GameSession {
   snapshot(): ShipmentSnapshot {
     return {
       v: 1,
+      ruleset: RULESET_VERSION,
+      generator: GENERATOR_VERSION,
       source: { ...this.source },
       levelFingerprint: levelFingerprint(this.level),
       graceScale: this.graceScale,
@@ -364,15 +427,33 @@ export class GameSession {
       rejectedDrops: this.rejected,
       undoLeft: this.undoLeftValue,
       undo: this.undoFrame ? cloneFrame(this.undoFrame) : null,
-      outcome: this.outcomeValue ? structuredCloneOutcome(this.outcomeValue) : null,
+      outcome: this.outcomeValue ? cloneOutcome(this.outcomeValue) : null,
     };
   }
 
   /**
    * Rebuilds a session from a snapshot. A shipment that was being played
    * comes back paused - resuming is always the player's decision.
+   *
+   * Throws SessionRestoreError: 'unsupported' for another snapshot format or
+   * ruleset/generator, 'level-changed' when the level data no longer matches,
+   * 'corrupt' for anything malformed. Never any other error.
    */
   static restore(level: LevelDef, snap: ShipmentSnapshot): GameSession {
+    try {
+      return GameSession.restoreUnchecked(level, snap);
+    } catch (e) {
+      if (e instanceof SessionRestoreError) throw e;
+      throw new SessionRestoreError('corrupt');
+    }
+  }
+
+  private static restoreUnchecked(level: LevelDef, snap: ShipmentSnapshot): GameSession {
+    if (!snap || typeof snap !== 'object' || snap.v !== 1) throw new SessionRestoreError('unsupported');
+    if (snap.ruleset !== RULESET_VERSION) throw new SessionRestoreError('unsupported');
+    if (snap.source?.mode === 'endless' && snap.generator !== GENERATOR_VERSION) {
+      throw new SessionRestoreError('unsupported');
+    }
     if (snap.levelFingerprint !== levelFingerprint(level)) throw new SessionRestoreError('level-changed');
     if (!isConsistent(level, snap)) throw new SessionRestoreError('corrupt');
 
@@ -388,11 +469,12 @@ export class GameSession {
     s.winSettleMs = snap.winSettleMs;
     s.activeMsValue = snap.activeMs;
     s.dangerMsValue = snap.dangerMs;
-    s.assistsValue = { ...snap.assists };
+    s.assistsValue = { hints: snap.assists.hints, undos: snap.assists.undos };
     s.rejected = snap.rejectedDrops;
     s.undoFrame = snap.undo ? cloneFrame(snap.undo) : null;
-    s.outcomeValue = snap.outcome ? structuredCloneOutcome(snap.outcome) : null;
-    s.evalCache = s.board.evaluate();
+    s.outcomeValue = snap.outcome ? cloneOutcome(snap.outcome) : null;
+    s.evalCache = freezeEval(s.board.evaluate());
+    s.lastHazard = s.hazards.peek(s.evalCache);
     return s;
   }
 
@@ -410,7 +492,8 @@ export class GameSession {
 
   private afterChange() {
     this.winSettleMs = 0;
-    this.evalCache = this.board.evaluate();
+    this.evalCache = freezeEval(this.board.evaluate());
+    this.lastHazard = this.hazards.peek(this.evalCache);
   }
 
   private failureFacts(hz: HazardState): FailureFacts {
@@ -439,6 +522,7 @@ export class GameSession {
     this.undoFrame = null;
     const outcome: ShipmentOutcome = {
       result,
+      ruleset: RULESET_VERSION,
       placements: this.board.list.map((p) => ({ ...p })),
       imbalance: this.evalCache.imbalance,
       limit: finishLimit(this.level),
@@ -449,46 +533,103 @@ export class GameSession {
     };
     if (failure) outcome.failure = failure;
     this.outcomeValue = outcome;
-    return outcome;
+    return cloneOutcome(outcome);
   }
 }
+
+// ============================================================================
+// Helpers
+// ============================================================================
 
 function cloneFrame(f: UndoFrame): UndoFrame {
   return {
     placements: f.placements.map((p) => ({ ...p })),
     queue: [...f.queue],
-    hazards: {
-      balance: f.hazards.balance,
-      overload: f.hazards.overload.map(([a, b]) => [a, b] as [number, number]),
-      fragile: f.hazards.fragile.map(([a, b]) => [a, b] as [number, number]),
-    },
+    hazards: cloneHazards(f.hazards),
   };
 }
 
-function structuredCloneOutcome(o: ShipmentOutcome): ShipmentOutcome {
+function cloneHazards(h: HazardSnapshot): HazardSnapshot {
+  return {
+    balance: h.balance,
+    overload: h.overload.map(([a, b]) => [a, b] as [number, number]),
+    fragile: h.fragile.map(([a, b]) => [a, b] as [number, number]),
+  };
+}
+
+function cloneOutcome(o: ShipmentOutcome): ShipmentOutcome {
   return JSON.parse(JSON.stringify(o)) as ShipmentOutcome;
 }
 
+/** Frame clocks, but no clock that was running both before and after the undone command gets time back. */
+function minMerge(frame: HazardSnapshot, now: HazardSnapshot): HazardSnapshot {
+  const nowOver = new Map(now.overload);
+  const nowFrag = new Map(now.fragile);
+  return {
+    balance: Math.min(frame.balance, now.balance),
+    overload: frame.overload.map(([k, v]) => [k, Math.min(v, nowOver.get(k) ?? v)] as [number, number]),
+    fragile: frame.fragile.map(([k, v]) => [k, Math.min(v, nowFrag.get(k) ?? v)] as [number, number]),
+  };
+}
+
+const isCount = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0;
+const isTime = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0;
+
 /** Every package is either on the belt or on a legal, non-overlapping slot - exactly once. */
-function isConsistent(level: LevelDef, snap: ShipmentSnapshot): boolean {
+function validBoard(level: LevelDef, placements: unknown, queue: unknown): boolean {
+  if (!Array.isArray(placements) || !Array.isArray(queue)) return false;
   const n = level.packages.length;
   const seen = new Set<number>();
-  for (const id of snap.queue) {
+  for (const id of queue) {
     if (!Number.isInteger(id) || id < 0 || id >= n || seen.has(id)) return false;
     seen.add(id);
   }
   const board = new PlacementSystem(level);
-  for (const p of snap.placements) {
+  for (const p of placements as Placement[]) {
+    if (!p || typeof p !== 'object') return false;
     if (!Number.isInteger(p.id) || p.id < 0 || p.id >= n || seen.has(p.id)) return false;
     if (p.type !== level.packages[p.id]) return false;
     if (board.check(p.type, p.shelf, p.slot, p.id)) return false;
     board.place(p.id, p.type, p.shelf, p.slot);
     seen.add(p.id);
   }
-  if (seen.size !== n) return false;
-  if (snap.undo) {
-    const u = snap.undo;
-    if (u.placements.length + u.queue.length !== n) return false;
+  return seen.size === n;
+}
+
+function validHazards(level: LevelDef, h: unknown): boolean {
+  if (!h || typeof h !== 'object') return false;
+  const hz = h as HazardSnapshot;
+  if (typeof hz.balance !== 'number' || !Number.isFinite(hz.balance)) return false;
+  if (!Array.isArray(hz.overload) || !Array.isArray(hz.fragile)) return false;
+  for (const e of hz.overload) {
+    if (!Array.isArray(e) || e.length !== 2) return false;
+    const [tier, ms] = e;
+    if (!Number.isInteger(tier) || tier < 0 || tier >= level.shelves.length || !Number.isFinite(ms)) return false;
   }
-  return Number.isFinite(snap.activeMs) && Number.isFinite(snap.hazards.balance);
+  for (const e of hz.fragile) {
+    if (!Array.isArray(e) || e.length !== 2) return false;
+    const [id, ms] = e;
+    if (level.packages[id] !== 'fragile' || !Number.isFinite(ms)) return false;
+  }
+  return true;
+}
+
+function isConsistent(level: LevelDef, snap: ShipmentSnapshot): boolean {
+  if (!PHASES.includes(snap.phase)) return false;
+  const terminal = snap.phase === 'won' || snap.phase === 'failed';
+  if (terminal !== (snap.outcome !== null && snap.outcome !== undefined)) return false;
+  if (snap.phase === 'won' && snap.queue.length !== 0) return false;
+  if (typeof snap.graceScale !== 'number' || !(snap.graceScale >= 0.3 && snap.graceScale <= 1)) return false;
+  if (!isTime(snap.winSettleMs) || !isTime(snap.activeMs) || !isTime(snap.dangerMs)) return false;
+  if (snap.dangerMs > snap.activeMs + 1e-6) return false;
+  if (!snap.assists || !isCount(snap.assists.hints) || !isCount(snap.assists.undos)) return false;
+  if (!isCount(snap.rejectedDrops) || !isCount(snap.undoLeft)) return false;
+  if (!snap.source || (snap.source.mode !== 'campaign' && snap.source.mode !== 'endless')) return false;
+  if (!validBoard(level, snap.placements, snap.queue)) return false;
+  if (!validHazards(level, snap.hazards)) return false;
+  if (snap.undo !== null && snap.undo !== undefined) {
+    if (!validBoard(level, snap.undo.placements, snap.undo.queue)) return false;
+    if (!validHazards(level, snap.undo.hazards)) return false;
+  }
+  return true;
 }

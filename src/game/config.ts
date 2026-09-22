@@ -25,6 +25,17 @@ export const CRUSH_WEIGHT = 4;
 /** How long the board must sit clean before a completed level is declared won. */
 export const WIN_SETTLE_MS = 620;
 
+/** Longest single step the rules clocks ever take. */
+export const MAX_STEP_MS = 50;
+
+/**
+ * Most real time one animation frame may charge to the rules clocks. Frames
+ * slower than MAX_STEP_MS are sub-stepped so a slow renderer does not buy
+ * extra seconds; stalls beyond this (a tab switch that the lifecycle pause
+ * missed) are dropped rather than charged.
+ */
+export const MAX_FRAME_CATCHUP_MS = 250;
+
 /**
  * 3D world units. One slot is one unit wide; everything else is proportioned
  * off that so a level's slot maths maps straight onto rack-local coordinates.

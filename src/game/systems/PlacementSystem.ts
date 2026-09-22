@@ -31,7 +31,8 @@ export class PlacementSystem {
   }
 
   place(id: number, type: PackageType, shelf: number, slot: number) {
-    this.byId.set(id, { id, type, shelf, slot });
+    // Frozen so a read-out handed to a view can never edit the board.
+    this.byId.set(id, Object.freeze({ id, type, shelf, slot }));
   }
 
   remove(id: number) {
