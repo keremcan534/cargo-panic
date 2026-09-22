@@ -7,10 +7,10 @@
  */
 
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { relative } from 'node:path';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join, relative } from 'node:path';
 import { test } from 'node:test';
-import { chainTo, isThree, reachable } from '../../scripts/lib/import-graph';
+import { chainTo, isThree, parseImports, reachable } from '../../scripts/lib/import-graph';
 
 const PURE_ENTRIES = [
   'src/game/systems/BalanceSystem.ts',
@@ -43,3 +43,58 @@ for (const entry of PURE_ENTRIES) {
     }
   });
 }
+
+// ---------------------------------------------------------------------------
+// Renderer boundary: only src/render/three/** may use three.js. The app shell,
+// the game controller, the input layer and the DOM screens talk to a Stage /
+// GameView and must not pull three in (so a 2D start never loads it).
+// ---------------------------------------------------------------------------
+
+function sourceFiles(dir: string): string[] {
+  const out: string[] = [];
+  for (const name of readdirSync(dir)) {
+    const f = join(dir, name);
+    if (statSync(f).isDirectory()) out.push(...sourceFiles(f));
+    else if (f.endsWith('.ts') && !f.endsWith('.d.ts')) out.push(f);
+  }
+  return out;
+}
+
+const uiScreens = readdirSync('src/ui')
+  .filter((f) => f.endsWith('.ts'))
+  .map((f) => `src/ui/${f}`);
+
+const THREE_FREE = [
+  'src/app/Game.ts',
+  'src/app/Router.ts',
+  'src/app/App.ts',
+  'src/app/FrameLoop.ts',
+  'src/input/InteractionController.ts',
+  'src/render/GameView.ts',
+  'src/render/Stage.ts',
+  'src/render/layout.ts',
+  'src/render/Tween.ts',
+  ...uiScreens,
+];
+
+for (const entry of THREE_FREE) {
+  test(`${entry} does not reach three.js`, () => {
+    assert.equal(chainTo(entry, isThree), null);
+  });
+}
+
+test('only src/render/three/** imports three.js directly', () => {
+  const offenders = sourceFiles('src')
+    .filter((f) => parseImports(f).packages.some(isThree))
+    .map((f) => relative(process.cwd(), f).split('\\').join('/'))
+    .filter((f) => !f.startsWith('src/render/three/'));
+  assert.deepEqual(offenders, []);
+});
+
+test('only src/main.ts and src/render/three/** reach three.js at all', () => {
+  const offenders = sourceFiles('src')
+    .map((f) => relative(process.cwd(), f).split('\\').join('/'))
+    .filter((f) => !f.startsWith('src/render/three/') && f !== 'src/main.ts')
+    .filter((f) => chainTo(f, isThree) !== null);
+  assert.deepEqual(offenders, []);
+});

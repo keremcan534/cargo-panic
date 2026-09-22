@@ -25,6 +25,17 @@ if (boot) {
 app.start();
 app.router.go(splashScreen);
 
+// Browser tests (`?e2e`) and dev builds can read GPU resource counts, to catch leaks across screens.
+if (import.meta.env.DEV || new URLSearchParams(window.location.search).has('e2e')) {
+  (window as unknown as { __cargoPanicGpu: () => Record<string, number> }).__cargoPanicGpu = () => ({
+    geometries: stage.gl.info.memory.geometries,
+    textures: stage.gl.info.memory.textures,
+    programs: stage.gl.info.programs?.length ?? 0,
+    sceneChildren: stage.scene.children.length,
+    frames: loop.frames,
+  });
+}
+
 // --- browser gesture lockdown ----------------------------------------------
 const stop = (e: Event) => e.preventDefault();
 document.addEventListener('contextmenu', stop);
