@@ -87,11 +87,20 @@ export interface WinInfo {
   imbalance: number;
   tolerance: number;
   packages: number;
-  mistakes: number;
-  hintUsed: boolean;
+  /** Help taken this shipment (refused drops are not shown: they never cost anything). */
+  hints: number;
+  undos: number;
   isLastLevel: boolean;
   newBest: boolean;
   firstClear: boolean;
+}
+
+/** NONE / HINT / UNDO / HINT + UNDO. */
+function helpUsed(hints: number, undos: number): string {
+  if (hints > 0 && undos > 0) return t('win.helpBoth');
+  if (hints > 0) return t('win.helpHint');
+  if (undos > 0) return t('win.helpUndo');
+  return t('win.helpNone');
 }
 
 export class WinPanel extends Modal {
@@ -124,11 +133,11 @@ export class WinPanel extends Modal {
       [t('win.accuracy'), `${accuracy}%`, acc],
       [t('win.finalImbalance'), fmt(info.imbalance, 2), acc],
       [t('win.stowed'), `${info.packages} / ${info.packages}`, 'good'],
-      [t('win.rejected'), String(info.mistakes), info.mistakes === 0 ? 'good' : 'warn'],
+      [t('win.help'), helpUsed(info.hints, info.undos), info.hints + info.undos === 0 ? 'good' : 'dim'],
     ]);
 
     if (info.newBest) this.note(t('win.newBest'), 'gold');
-    else if (info.hintUsed) this.note(t('win.hintCap'), 'dim');
+    else if (info.hints > 0) this.note(t('win.hintCap'), 'dim');
     else if (info.firstClear && !info.isLastLevel) this.note(t('win.unlocked', { n: info.levelId + 1 }), 'accent');
     if (info.isLastLevel) this.note(t('win.allCleared'), 'warm');
 
@@ -160,7 +169,7 @@ export class FailPanel extends Modal {
     this.kicker(t('fail.kicker'));
     this.headline(failTitle(reason), 'bad');
     this.body(failBody(reason));
-    if (detail) this.note(detail, 'warn');
+    if (detail) this.note(detail, 'warn').dataset.role = 'fail-detail';
     const retry = btn(t('fail.retry'), () => this.close(actions.onRetry), 'primary', 'lg');
     retry.dataset.role = 'retry';
     this.actions(retry, btn(t('fail.levelSelect'), () => this.close(actions.onLevels), 'ghost', 'md'));
@@ -323,13 +332,21 @@ export interface RunOverInfo {
   bestWave: number;
   newBest: boolean;
   reason: FailReason;
+  /** The same fact line the campaign loss panel shows. */
+  detail: string;
+  /** A hint or an undo was used somewhere in the run. */
+  assisted: boolean;
 }
 
 export class RunOverPanel extends Modal {
-  constructor(info: RunOverInfo, actions: { onRetry: () => void; onMenu: () => void }) {
+  constructor(
+    info: RunOverInfo,
+    actions: { onRetrySame: () => void; onNewShift: () => void; onMenu: () => void },
+  ) {
     super();
     this.kicker(t('run.kicker'));
     this.headline(failTitle(info.reason), 'bad');
+    if (info.detail) this.note(info.detail, 'warn').dataset.role = 'fail-detail';
     this.card.append(el('div', { class: 'big', text: formatScore(info.score) }));
     this.card.append(el('div', { class: 'note dim', text: t('run.finalScore') }));
     this.stats([
@@ -340,10 +357,18 @@ export class RunOverPanel extends Modal {
     ]);
     if (info.newBest) this.note(t('run.newBest'), 'gold');
     else this.note(t('run.bestWave', { n: info.bestWave }), 'dim');
-    const again = btn(t('run.again'), () => this.close(actions.onRetry), 'primary', 'lg');
-    again.dataset.role = 'retry';
-    this.actions(again, btn(t('run.mainMenu'), () => this.close(actions.onMenu), 'ghost'));
-    this.card.append(el('div', { class: 'seed', text: t('run.shift', { seed: formatSeed(info.seed) }) }));
+    if (info.assisted) this.note(t('run.assisted'), 'dim').dataset.role = 'assisted';
+    // Two different things: the same shift again (same seed, wave 1), or a fresh one.
+    const same = btn(t('run.retrySame'), () => this.close(actions.onRetrySame), 'primary', 'lg');
+    same.dataset.role = 'retry-same';
+    const fresh = btn(t('run.newShift'), () => this.close(actions.onNewShift), 'gold', 'md');
+    fresh.dataset.role = 'new-shift';
+    const menu = btn(t('run.mainMenu'), () => this.close(actions.onMenu), 'ghost');
+    menu.dataset.role = 'menu';
+    this.actions(same, fresh, menu);
+    const seed = el('div', { class: 'seed', text: t('run.shift', { seed: formatSeed(info.seed) }) });
+    seed.dataset.role = 'shift-code';
+    this.card.append(seed);
   }
 }
 

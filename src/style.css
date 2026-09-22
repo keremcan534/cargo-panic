@@ -155,11 +155,22 @@ html, body {
 
 .controls {
   position: absolute; left: 14px; right: 14px; bottom: calc(12px + var(--safe-bottom));
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  display: grid; grid-template-columns: 48px 1fr auto auto; grid-template-areas: "help text undo hint";
+  align-items: center; gap: 8px 10px;
 }
+.controls .help { grid-area: help; }
+.controls .hint-text { grid-area: text; }
+.controls .btn.undo { grid-area: undo; }
+.controls .btn.gold { grid-area: hint; }
+/* Narrow phones: the how-to line gets its own row above the buttons. */
+@media (max-width: 560px) {
+  .controls { grid-template-columns: 48px 1fr auto auto; grid-template-areas: "text text text text" "help . undo hint"; }
+  .controls .hint-text { text-align: center; }
+}
+.controls .btn.undo.off { filter: grayscale(.6) brightness(.7); box-shadow: 0 2px 0 rgba(0,0,0,.35); }
 .controls .hint-text { font-size: clamp(.78rem, 3.3vw, .95rem); color: var(--faint); line-height: 1.3; flex: 1; white-space: pre-line; }
 .controls .hint-text.selected { color: #8cc4ff; font-weight: 800; }
-.controls .btn.sm { width: min(34vw, 196px); height: clamp(48px, 7vh, 62px); font-size: clamp(1rem, 4.2vw, 1.35rem); }
+.controls .btn.sm { width: min(30vw, 180px); height: clamp(48px, 7vh, 62px); font-size: clamp(1rem, 4.2vw, 1.35rem); padding: 0 .6rem; }
 
 .belt-zone {
   position: absolute; left: 12px; right: 12px; bottom: calc(76px + var(--safe-bottom)); height: 22vh;

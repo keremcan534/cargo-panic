@@ -118,6 +118,10 @@ export const tr: Record<TextKey, string> = {
   'shelf.bottom': 'Alt raf',
   'shelf.top': 'Üst raf',
   'shelf.n': '{n}. raf',
+  // fail.detail.fragile starts with {shelf} in Turkish, so these stay capitalised.
+  'shelf.bottomOn': 'Alt raf',
+  'shelf.topOn': 'Üst raf',
+  'shelf.nOn': '{n}. raf',
 
   // --- pause / settings ---------------------------------------------------------
   'pause.title': 'DURAKLATILDI',

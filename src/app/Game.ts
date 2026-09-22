@@ -60,6 +60,9 @@ import type { FailReason } from '../ui/Panels';
 import { viewControls } from '../ui/ViewSettings';
 import { btn, el, fadeIn, fadeOut, iconBtn, uiRoot } from '../ui/dom';
 
+/** One free undo per shipment (campaign level or Endless wave); a new wave is a new session. */
+const UNDO_PER_SHIPMENT = 1;
+
 export interface GameData {
   levelId?: number;
   run?: RunState;
@@ -109,6 +112,17 @@ function blockText(r: BlockReason): string {
   }
 }
 
+/**
+ * A shelf as a loss message names it: the bottom one, the top one (on a rack
+ * with more than one), otherwise by number from the bottom. `on` is the form
+ * used after "on" in the fragile message.
+ */
+function shelfName(tier: number, tiers: number, form: 'start' | 'on' = 'start'): string {
+  if (tier === 0) return form === 'on' ? t('shelf.bottomOn') : t('shelf.bottom');
+  if (tier === tiers - 1) return form === 'on' ? t('shelf.topOn') : t('shelf.top');
+  return form === 'on' ? t('shelf.nOn', { n: tier + 1 }) : t('shelf.n', { n: tier + 1 });
+}
+
 /** Endless waves that open with a note about what is new. */
 const WAVE_NOTES = [1, 2, 4, 6, 9, 12] as const;
 type WaveNoteKey = `wave.intro.${(typeof WAVE_NOTES)[number]}`;
@@ -133,6 +147,7 @@ class GameController implements Screen {
   private meter!: Meter;
   private controls!: HTMLElement;
   private controlsText!: HTMLElement;
+  private undoBtn!: HTMLButtonElement;
   private beltZone!: HTMLElement;
   private dangerEl!: HTMLElement;
 
@@ -166,11 +181,15 @@ class GameController implements Screen {
       this.session = new GameSession(this.level, {
         source: waveSource(this.run),
         graceScale: this.graceScale,
+        undoAllowance: UNDO_PER_SHIPMENT,
       });
     } else {
       this.level = getLevel(data.levelId ?? 1);
       this.graceScale = 1;
-      this.session = new GameSession(this.level, { source: { mode: 'campaign', levelId: this.level.id } });
+      this.session = new GameSession(this.level, {
+        source: { mode: 'campaign', levelId: this.level.id },
+        undoAllowance: UNDO_PER_SHIPMENT,
+      });
     }
     this.pauses = new PauseReasons(this.session);
   }
@@ -203,13 +222,14 @@ class GameController implements Screen {
 
     const hint = btn(t('hud.hint'), () => this.onHint(), 'gold', 'sm');
     hint.dataset.role = 'hint';
+    // Stays clickable when unavailable (aria-disabled, not disabled) so a press can say why.
+    this.undoBtn = btn(t('hud.undo'), () => this.onUndo(), 'secondary', 'sm', 'undo');
+    this.undoBtn.dataset.role = 'undo';
     this.controlsText = el('div', { class: 'hint-text', text: t('hud.controlsHintTap') });
     this.controlsText.dataset.role = 'controls-text';
-    this.controls = el('div', { class: 'controls' }, [
-      iconBtn('help', () => this.openLegend(), t('hud.guide')),
-      this.controlsText,
-      hint,
-    ]);
+    const help = iconBtn('help', () => this.openLegend(), t('hud.guide'));
+    help.classList.add('help');
+    this.controls = el('div', { class: 'controls' }, [help, this.controlsText, this.undoBtn, hint]);
     this.beltZone = el('div', { class: 'belt-zone' }, [el('span', { text: t('hud.beltZone') })]);
     this.dangerEl = el('div', { id: 'danger' });
     uiRoot().append(this.dangerEl, this.beltZone, this.controls);
@@ -407,6 +427,7 @@ class GameController implements Screen {
   }
 
   private refreshUi() {
+    this.refreshUndo();
     const s = this.session;
     const ev = s.evaluation;
     this.meter.setValue(ev.net, ev.leftTorque, ev.rightTorque, ev.status);
@@ -486,6 +507,7 @@ class GameController implements Screen {
   private onOutcome(o: ShipmentOutcome) {
     // Whatever is in hand stays where the rules had it; its pointerup is ignored.
     this.interaction.abort();
+    this.refreshUndo();
     this.beltZone.classList.remove('on');
     this.meter.hidePreview();
     if (o.result === 'won') {
@@ -530,6 +552,42 @@ class GameController implements Screen {
   }
 
   // ==========================================================================
+  // Undo
+  // ==========================================================================
+
+  /**
+   * UNDO is shown available while the shipment is on, the free undo is
+   * unused and there is a committed move to take back. A package in hand or
+   * selected does not grey it out: pressing it puts that package back first.
+   */
+  private refreshUndo() {
+    const snap = this.session.snapshot();
+    const ready = snap.phase === 'play' && snap.undoLeft > 0 && snap.undo !== null;
+    this.undoBtn.classList.toggle('off', !ready);
+    this.undoBtn.setAttribute('aria-disabled', String(!ready));
+  }
+
+  private onUndo() {
+    const s = this.session;
+    if (s.phase !== 'play') return;
+    // A second finger on UNDO mid-drag: the package goes back and a selection is let go first.
+    this.interaction.reset();
+    if (s.undoLeft <= 0) {
+      this.hud.toast(t('toast.undoUsed'), 'info');
+    } else if (!s.undo()) {
+      this.hud.toast(t('toast.nothingToUndo'), 'info');
+    } else {
+      this.clearHint();
+      // sync() moves every package to its restored place with a short, quiet tween.
+      this.refresh();
+      this.hud.toast(t('toast.undone'), 'info');
+      audio.pickup();
+      haptics.tap();
+    }
+    this.refreshUndo();
+  }
+
+  // ==========================================================================
   // Resolution
   // ==========================================================================
 
@@ -564,8 +622,8 @@ class GameController implements Screen {
           imbalance: o.imbalance,
           tolerance: o.limit,
           packages: this.level.packages.length,
-          mistakes: o.rejectedDrops,
-          hintUsed: o.assists.hints > 0,
+          hints: o.assists.hints,
+          undos: o.assists.undos,
           isLastLevel: id >= TOTAL_LEVELS,
           newBest: record.balanceImproved && previousBest !== null,
           firstClear: previousBest === null,
@@ -580,6 +638,13 @@ class GameController implements Screen {
     });
   }
 
+  /**
+   * The loss panel states what really happened, from the rules' failure
+   * facts: the imbalance against the limit and the lean, the shelf's load
+   * against its rating, or the heavy crate above the fragile one. The view
+   * points at the shelf or the packages involved, during the fall and behind
+   * the panel.
+   */
   private failLevel(o: ShipmentOutcome) {
     this.endHazardUi();
     const f = o.failure;
@@ -591,27 +656,41 @@ class GameController implements Screen {
       reason = 'collapse';
       const imbalance = f?.imbalance ?? o.imbalance;
       const tolerance = f?.tolerance ?? this.level.balanceTolerance;
-      detail = `Imbalance reached ${imbalance.toFixed(1)} against a limit of ${tolerance.toFixed(1)}.`;
+      const lean = f?.net ?? net;
+      detail = t('fail.detail.collapse', {
+        imbalance: fmt(imbalance),
+        limit: fmt(tolerance),
+        side: lean > 0 ? t('fail.side.right') : t('fail.side.left'),
+      });
       audio.collapse();
       haptics.crash();
       this.flash();
-      const dir = (f?.net ?? net) >= 0 ? 1 : -1;
+      const dir = lean >= 0 ? 1 : -1;
       this.showOutcome((v) => v.failCollapse(dir));
     } else if (f.kind === 'overload') {
       reason = 'overload';
-      detail = `Tier ${f.tier + 1} carried ${f.load} against a rating of ${f.max}.`;
+      detail = t('fail.detail.overload', { shelf: shelfName(f.tier, this.level.shelves.length), load: f.load, max: f.max });
       audio.collapse();
       haptics.crash();
       const tier = f.tier;
       const dir = net >= 0 ? 1 : -1;
-      this.showOutcome((v) => v.failOverload(tier, dir));
+      this.showOutcome((v) => {
+        v.failOverload(tier, dir);
+        v.highlight({ shelf: tier });
+      });
     } else {
       reason = 'fragile';
-      detail = 'A heavy crate was stacked in the column above the glass.';
+      const weight = Math.max(0, ...f.crusherIds.map((id) => PACKAGE_SPECS[this.level.packages[id]].weight));
+      const tier = o.placements.find((p) => p.id === f.fragileId)?.shelf ?? 0;
+      detail = t('fail.detail.fragile', { weight, shelf: shelfName(tier, this.level.shelves.length, 'on') });
       audio.shatter();
       haptics.crash();
       const id = f.fragileId;
-      this.showOutcome((v) => v.failFragile(id));
+      const crushers = [...f.crusherIds];
+      this.showOutcome((v) => {
+        v.failFragile(id);
+        v.highlight({ cargo: id, others: crushers });
+      });
     }
 
     audio.fail();
@@ -633,9 +712,14 @@ class GameController implements Screen {
             bestWave: stats.bestWave,
             newBest,
             reason,
+            detail,
+            // A run is assisted once any rewarded wave used help, or this last wave did.
+            assisted: run.assisted || o.assists.hints > 0 || o.assists.undos > 0,
           },
           {
-            onRetry: () => this.goto((c) => gameScreen(c, { run: newRun() })),
+            // Same seed and configuration, but a new run (new runId): wave 1 again.
+            onRetrySame: () => this.goto((c) => gameScreen(c, { run: newRun(run.seed) })),
+            onNewShift: () => this.goto((c) => gameScreen(c, { run: newRun() })),
             onMenu: () => this.goto(menuScreen),
           },
         );

@@ -114,10 +114,14 @@ export const en = {
   'fail.retry': 'RETRY',
   'fail.levelSelect': 'LEVEL SELECT',
 
-  // Shelf names used in loss messages.
+  // Shelf names used in loss messages: at the start of a sentence, and in
+  // fail.detail.fragile ("...the fragile crate on {shelf}.").
   'shelf.bottom': 'The bottom shelf',
   'shelf.top': 'The top shelf',
   'shelf.n': 'Shelf {n}',
+  'shelf.bottomOn': 'the bottom shelf',
+  'shelf.topOn': 'the top shelf',
+  'shelf.nOn': 'shelf {n}',
 
   // --- pause / settings ---------------------------------------------------------
   'pause.title': 'PAUSED',
