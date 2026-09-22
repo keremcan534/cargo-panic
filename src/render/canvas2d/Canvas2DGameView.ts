@@ -413,7 +413,12 @@ export class Canvas2DGameView implements GameView, Layer2D {
       const k = 1 - Math.pow(0.0004, dt / 1000);
       d.lift += (d.liftTarget - d.lift) * k;
       d.box.p.x = d.px + d.gx;
-      d.box.p.y = d.py + d.gy + d.lift;
+      // The touch lift fades out while the finger is down on the belt row, so a
+      // package held there (or dragged back there) is drawn - and aimed - on the
+      // belt, not floated up onto the bottom shelf.
+      const base = d.py + d.gy;
+      const taper = Math.max(0, Math.min(1, (base - (BELT_2D.topY + W3.cargoH)) / W3.touchLift));
+      d.box.p.y = base + d.lift * taper;
       this.target = this.computeTarget();
     }
 
@@ -774,7 +779,9 @@ export class Canvas2DGameView implements GameView, Layer2D {
     tw.kill(box.r);
     tw.kill(box.a);
     tw.kill(box.sq);
-    const origin = box.loc;
+    // Where the rules have it now - a package re-grabbed mid-flight has not
+    // reached box.loc yet.
+    const origin = this.board ? locOf(this.board, cargoId) : box.loc;
     this.detach(box);
     box.mode = 'hand';
     box.visible = true;
@@ -1145,7 +1152,8 @@ export class Canvas2DGameView implements GameView, Layer2D {
     let w: Point;
     if ('cargo' in target) {
       const box = this.boxes[target.cargo];
-      if (!box) return null;
+      // Same as 3D: a package that is not drawn has no point on screen.
+      if (!box || !box.visible || box.a.v <= 0.01) return null;
       w = this.worldCentre(box);
     } else if ('belt' in target) {
       w = { x: L.liveX, y: L.beltCargoY };

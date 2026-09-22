@@ -77,7 +77,19 @@ interface Active {
   pointerId: number;
   cargoId: number;
   slots: number;
+  /** Where the press started, and whether it has since moved past DRAG_SLOP_PX. */
+  x0: number;
+  y0: number;
+  moved: boolean;
 }
+
+/**
+ * A press only becomes a drag that can aim at a target once the pointer has
+ * travelled this far (CSS px). Without it a quick click or a still finger on
+ * the live belt package could land it on the bottom shelf while the view was
+ * still easing it off the belt.
+ */
+export const DRAG_SLOP_PX = 8;
 
 export class InteractionController {
   private readonly surface: PointerSurface;
@@ -180,7 +192,7 @@ export class InteractionController {
     const id = this.view.pickCargo(p, s.movable());
     if (id === null) return;
     if (!s.hold(id)) return;
-    this.active = { pointerId: e.pointerId, cargoId: id, slots: slotsOf(s, id) };
+    this.active = { pointerId: e.pointerId, cargoId: id, slots: slotsOf(s, id), x0: e.clientX, y0: e.clientY, moved: false };
     this.shown = null;
     try {
       this.surface.setPointerCapture?.(e.pointerId);
@@ -192,7 +204,9 @@ export class InteractionController {
   }
 
   move(e: PointerInput) {
-    if (!this.active || e.pointerId !== this.active.pointerId) return;
+    const a = this.active;
+    if (!a || e.pointerId !== a.pointerId) return;
+    if (!a.moved && Math.hypot(e.clientX - a.x0, e.clientY - a.y0) > DRAG_SLOP_PX) a.moved = true;
     this.view.moveDrag(sample(e));
   }
 
@@ -240,7 +254,8 @@ export class InteractionController {
   update() {
     const a = this.active;
     if (!a) return;
-    const t = this.view.dragTarget();
+    // Until the pointer has really moved, nothing is aimed and a release changes nothing.
+    const t = a.moved ? this.view.dragTarget() : null;
 
     if (t?.kind === 'belt') {
       this.shown = { kind: 'belt' };

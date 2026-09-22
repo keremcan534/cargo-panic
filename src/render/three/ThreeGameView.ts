@@ -337,8 +337,14 @@ export class ThreeGameView implements GameView {
     const p = this.stage.pointerOnPlane(this.pointer.x, this.pointer.y, this.dragZ);
     if (!p) return;
     c.mesh.position.set(p.x + this.dragGrab.x, p.y + this.dragGrab.y + this.dragLift, this.dragZ);
-    // The slot under the package as drawn wins; the belt only when it is over no slot.
-    this.target = this.slotUnder(c.mesh.position, c.slots) ?? (this.inBeltBand(this.pointer.y) ? { kind: 'belt' } : null);
+    // Aim from where the package is heading, the settled drag plane: while it
+    // eases off the belt (z 4.4 -> 0.55) its eased position still projects onto
+    // the bottom shelf's band although the finger is on the belt. The slot
+    // under it wins; the belt only when it is over no slot.
+    const q = this.dragZ === W3.dragZ ? p : this.stage.pointerOnPlane(this.pointer.x, this.pointer.y, W3.dragZ);
+    const aim = q ? new THREE.Vector3(q.x + this.dragGrab.x, q.y + this.dragGrab.y + this.dragLift, W3.dragZ) : null;
+    this.target =
+      (aim && this.slotUnder(aim, c.slots)) ?? (this.inBeltBand(this.pointer.y) ? { kind: 'belt' } : null);
   }
 
   /** Slot under a world point for a package `slots` wide (shared hit-test on the rack-local position). */
@@ -539,7 +545,11 @@ export class ThreeGameView implements GameView {
   private conclude(freeze: boolean) {
     this.settleHand();
     this.concluded = true;
-    if (freeze) this.frozen = true;
+    if (freeze) {
+      this.frozen = true;
+      // Same as 2D: a finished shipment stops wobbling.
+      this.rack.stopWobble();
+    }
     this.updateColumns();
   }
 

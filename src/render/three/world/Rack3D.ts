@@ -237,5 +237,12 @@ export class Rack3D {
     this.tweens.kill(this.group.rotation);
     for (const s of this.shelves) s.dispose();
     disposeTree(this.group);
+    // Not reachable through the tree when no crush band is showing.
+    this.columnMat.dispose();
+  }
+
+  /** Ends the danger wobble (the shipment is over). */
+  stopWobble() {
+    this.wobble = 0;
   }
 }

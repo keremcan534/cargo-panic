@@ -154,6 +154,12 @@ const ptr = (pointerId: number, pointerType = 'mouse'): PointerInput => ({
   pointerType,
 });
 
+/** A press that then travels past the drag slop, as every real drag does. */
+function press(pointerId: number, pointerType = 'mouse') {
+  ctl.down(ptr(pointerId, pointerType));
+  ctl.move({ ...ptr(pointerId, pointerType), clientX: 100 + pointerId + 30 });
+}
+
 let session: GameSession;
 let view: FakeView;
 let surface: FakeSurface;
@@ -168,7 +174,7 @@ function board() {
 /** Picks `id`, aims at `target`, lets the controller show it, releases. */
 function drag(id: number, target: DropTarget | null, pointerId = 1) {
   view.pick = id;
-  ctl.down(ptr(pointerId));
+  press(pointerId);
   view.target = target;
   ctl.update();
   ctl.up(ptr(pointerId));
@@ -189,7 +195,7 @@ describe('InteractionController', () => {
   test('picking a package up only holds it: board and belt are untouched', () => {
     const before = board();
     view.pick = 0;
-    ctl.down(ptr(1, 'touch'));
+    press(1, 'touch');
     assert.equal(session.held, 0);
     assert.equal(ctl.holding, 0);
     assert.equal(board(), before);
@@ -200,7 +206,7 @@ describe('InteractionController', () => {
 
   test('dragging the belt package onto a legal slot commits exactly one move', () => {
     view.pick = 0;
-    ctl.down(ptr(1));
+    press(1);
     view.target = { kind: 'slot', shelf: 0, slot: 2 };
     ctl.update();
     assert.ok(view.calls.includes('ghost:0:2:1:ok'));
@@ -227,7 +233,7 @@ describe('InteractionController', () => {
     session.move(0, 0, 2);
     const before = board();
     view.pick = 1;
-    ctl.down(ptr(1));
+    press(1);
     view.target = { kind: 'slot', shelf: 0, slot: 2 };
     ctl.update();
     assert.ok(view.calls.includes('ghost:0:2:1:bad'));
@@ -243,7 +249,7 @@ describe('InteractionController', () => {
   test('a second pointer is ignored while a package is in hand', () => {
     view.pick = 0;
     ctl.down(ptr(1));
-    ctl.down(ptr(2));
+    press(2);
     ctl.move(ptr(2));
     ctl.up(ptr(2));
     assert.deepEqual(view.only('beginDrag'), ['beginDrag:0:mouse']);
@@ -252,7 +258,7 @@ describe('InteractionController', () => {
     assert.equal(session.held, 0, 'still in hand after the second finger lifts');
     assert.equal(view.only('cargo').length, 0);
 
-    ctl.move(ptr(1));
+    ctl.move({ ...ptr(1), clientX: 140 });
     assert.equal(view.only('moveDrag').length, 1);
     view.target = { kind: 'slot', shelf: 0, slot: 2 };
     ctl.update();
@@ -264,7 +270,7 @@ describe('InteractionController', () => {
     session.move(0, 0, 1);
     const before = board();
     view.pick = 0;
-    ctl.down(ptr(1));
+    press(1);
     view.target = { kind: 'slot', shelf: 0, slot: 3 };
     ctl.update();
 
@@ -286,12 +292,12 @@ describe('InteractionController', () => {
 
   test('losing pointer capture or window focus also puts the package back', () => {
     view.pick = 0;
-    ctl.down(ptr(1));
+    press(1);
     surface.emit('lostpointercapture', { pointerId: 1 });
     assert.equal(session.held, null);
     assert.deepEqual(view.only('cargo'), ['cargoReturn:0']);
 
-    ctl.down(ptr(2));
+    press(2);
     blur.emit('blur');
     assert.equal(session.held, null);
     assert.deepEqual(view.only('cargo'), ['cargoReturn:0', 'cargoReturn:0']);
@@ -306,7 +312,7 @@ describe('InteractionController', () => {
     const left = r.hazard.remaining;
 
     view.pick = 0;
-    ctl.down(ptr(3));
+    press(3);
     view.target = null; // lifted clear of the rack
     ctl.update();
     assert.equal(session.held, 0);
@@ -327,7 +333,7 @@ describe('InteractionController', () => {
 
   test('release commits the target that was last shown, not a fresh hit-test', () => {
     view.pick = 0;
-    ctl.down(ptr(1));
+    press(1);
     view.target = { kind: 'slot', shelf: 0, slot: 1 };
     ctl.update();
     view.target = { kind: 'slot', shelf: 0, slot: 3 }; // moved, but no frame showed it yet
@@ -366,7 +372,7 @@ describe('InteractionController', () => {
   test('a window resize or orientation change mid-drag puts the package back', () => {
     const before = board();
     view.pick = 0;
-    ctl.down(ptr(1));
+    press(1);
     view.target = { kind: 'slot', shelf: 0, slot: 2 };
     ctl.update();
     blur.emit('resize');
@@ -375,7 +381,7 @@ describe('InteractionController', () => {
     ctl.up(ptr(1)); // the release after the resize commits nothing
     assert.equal(board(), before);
 
-    ctl.down(ptr(2));
+    press(2);
     blur.emit('orientationchange');
     assert.equal(session.held, null);
     assert.deepEqual(view.only('cargo'), ['cargoReturn:0', 'cargoReturn:0']);
@@ -385,7 +391,7 @@ describe('InteractionController', () => {
   test('setView: a drag on the old view is put back there, later input goes to the new view', () => {
     const before = board();
     view.pick = 0;
-    ctl.down(ptr(1));
+    press(1);
     const next = new FakeView();
     ctl.setView(next);
     assert.equal(session.held, null);
@@ -396,7 +402,7 @@ describe('InteractionController', () => {
 
     // The same pointer surface now drives the new view.
     next.pick = 0;
-    ctl.down(ptr(3));
+    press(3);
     next.target = { kind: 'slot', shelf: 0, slot: 2 };
     ctl.update();
     ctl.up(ptr(3));
@@ -408,7 +414,7 @@ describe('InteractionController', () => {
   test('nothing can be picked up while paused, and detach removes every listener', () => {
     session.pause();
     view.pick = 0;
-    ctl.down(ptr(1));
+    press(1);
     assert.equal(view.only('beginDrag').length, 0);
     assert.equal(session.held, null);
 
@@ -416,5 +422,29 @@ describe('InteractionController', () => {
     ctl.detach();
     assert.equal(surface.count(), 0);
     assert.equal(blur.count(), 0);
+  });
+});
+
+describe('drag slop', () => {
+  test('a press that never moves aims at nothing and a release changes nothing', () => {
+    const before = board();
+    view.pick = 0;
+    ctl.down(ptr(1));
+    view.target = { kind: 'slot', shelf: 0, slot: 2 };
+    ctl.update();
+    assert.equal(ctl.aimed, null);
+    ctl.up(ptr(1));
+    assert.equal(board(), before);
+    assert.equal(session.rejectedDrops, 0);
+    assert.equal(session.held, null);
+  });
+
+  test('a small wobble under the slop is still not a drag', () => {
+    view.pick = 0;
+    ctl.down(ptr(1));
+    ctl.move({ ...ptr(1), clientX: 101 + 5, clientY: 203 });
+    view.target = { kind: 'slot', shelf: 0, slot: 2 };
+    ctl.update();
+    assert.equal(ctl.aimed, null);
   });
 });

@@ -156,7 +156,8 @@ export class Cargo3D {
     this.tweens.kill(this.mesh.rotation);
     this.mesh.removeFromParent();
     this.mesh.geometry.dispose();
-    for (const m of this.mats) m.dispose();
+    // While cracked, mats[4] is frontCracked, so the normal front is not in the list.
+    for (const m of new Set([...this.mats, this.frontNormal])) m.dispose();
     this.frontCracked?.dispose();
   }
 }

@@ -216,6 +216,12 @@ export class ThreeStage implements Stage {
     }
     for (const child of [...this.scene.children]) quietly(() => disposeTree(child, true));
     quietly(() => releaseSharedMaterials());
+    // three keeps ONE module-level quad geometry for every Sprite (the lamp
+    // halos). The renderer registers a dispose listener on it whose closure
+    // holds this GL context, and renderer.dispose() does not remove it - so
+    // every disposed stage stayed reachable. Disposing the shared quad fires
+    // and clears those listeners; three re-uploads it on next use.
+    quietly(() => new THREE.Sprite().geometry.dispose());
     this.scene.background = null;
     this.scene.fog = null;
     this.gl.debug.onShaderError = null;
