@@ -19,6 +19,7 @@
 
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
+import { activeFrom, newShipment } from '../../src/app/activePlay';
 import { getWave } from '../../src/game/levels/generator';
 import { PACKAGE_SPECS } from '../../src/game/levels/types';
 import type { SaveData } from '../../src/game/save/schema';
@@ -661,6 +662,35 @@ test('no pause panel opens while the game fades out to another screen (Escape or
     await page.locator('.screen.levels [data-icon="back"]').dispatchEvent('click');
     await expect(page.locator('.menu [data-role="play"]')).toBeVisible({ timeout: 60_000 });
   }
+  expect(errors).toEqual([]);
+  await context.close();
+});
+
+test('Escape in the game acknowledges a save message first, like the Android back button', async ({ browser, baseURL }) => {
+  test.slow();
+  // A damaged save whose backup holds a level 2 game: the recovered-backup card is up at boot.
+  const backup = quietSave((d) => {
+    d.active = activeFrom(newShipment({ levelId: 2 }).session, null);
+  });
+  const { context, page, errors } = await openWithSave(browser, baseURL, 'garbage{', undefined, {
+    viewport: PHONE,
+    storage: { 'cargo-panic.save.v2.bak': backup },
+  });
+  await bootToMenu(page);
+  const card = page.locator('[data-role="save-recovered-backup"]');
+  await expect(card).toBeVisible();
+  // CONTINUE reached past the card (as a keyboard user tabbing out of it can): the game opens paused under it.
+  await continueFromMenu(page, 'CONTINUE - LEVEL 2');
+  await expect(card).toBeVisible();
+
+  await page.keyboard.press('Escape');
+  await expect(card).toHaveCount(0);
+  await expect(page.locator('.modal.pause')).toBeVisible();
+  expect(await phase(page)).toBe('paused');
+  // Then Escape is the game's own again: it resumes.
+  await page.keyboard.press('Escape');
+  await expect.poll(() => phase(page)).toBe('play');
+  await expect(page.locator('.modal.pause')).toHaveCount(0);
   expect(errors).toEqual([]);
   await context.close();
 });

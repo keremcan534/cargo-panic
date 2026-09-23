@@ -455,9 +455,9 @@ class GameController implements Screen {
     return { ...b, placements: [], queue: [], held: null, evaluation: empty, wobble: false };
   }
 
-  /** Escape on the web does what the Android back button does. */
+  /** Escape on the web takes the Android back button's path: a save message on screen is acknowledged first. */
   private onKey = (e: KeyboardEvent) => {
-    if (e.key === 'Escape' && !e.repeat) this.back();
+    if (e.key === 'Escape' && !e.repeat) this.ctx.app.back();
   };
 
   /**
