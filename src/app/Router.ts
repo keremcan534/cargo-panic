@@ -30,6 +30,8 @@ export interface Screen {
   stageLost?(): void;
   /** The lost context came back in time. */
   stageRestored?(): void;
+  /** The text language changed: re-render the screen's DOM in the new language. */
+  languageChanged?(): void;
 }
 
 export interface AppContext {

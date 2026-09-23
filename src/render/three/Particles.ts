@@ -51,6 +51,9 @@ interface Pool {
 
 export type Burst = 'dust' | 'spark' | 'glass' | 'debris' | 'confetti';
 
+/** Emission caps under reduced motion: a token puff, no storms (same numbers as the 2D view). */
+const TOKEN: Record<Burst, number> = { dust: 2, spark: 2, glass: 4, debris: 2, confetti: 6 };
+
 function makePool(map: THREE.Texture, additive: boolean): Pool {
   const geo = new THREE.BufferGeometry();
   const pos = new Float32Array(MAX * 3);
@@ -97,6 +100,8 @@ export class Particles {
   private c = new THREE.Color();
   /** Share of each requested burst that is emitted (the quality profile's particle budget). */
   private budget = 1;
+  /** Reduced motion: every burst is capped to a token amount. */
+  reduced = false;
 
   constructor(scene: THREE.Scene) {
     this.soft = makePool(glowTexture(), true);
@@ -105,7 +110,8 @@ export class Particles {
   }
 
   emit(kind: Burst, at: THREE.Vector3, count: number, tint?: number) {
-    const n = count > 0 ? Math.max(1, Math.round(count * this.budget)) : 0;
+    let n = count > 0 ? Math.max(1, Math.round(count * this.budget)) : 0;
+    if (this.reduced) n = Math.min(n, TOKEN[kind]);
     for (let i = 0; i < n; i++) this.spawn(kind, at, tint);
   }
 

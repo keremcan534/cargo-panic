@@ -49,7 +49,11 @@ export class Conveyor3D {
   readonly z = W3.beltZ;
 
   private tex: THREE.CanvasTexture;
+  private beltMat: THREE.MeshStandardMaterial;
   private speed = 0.35;
+  /** The belt is the target being shown: it glows blue (pulsing unless reduced motion). */
+  private hover = false;
+  private hoverTime = 0;
 
   constructor(parent: THREE.Object3D, halfWidth: number) {
     const w = halfWidth * 2 + 9;
@@ -60,6 +64,9 @@ export class Conveyor3D {
     this.tex = beltTexture();
     this.tex.repeat.set(w / 1.0, 1);
     const beltMat = new THREE.MeshStandardMaterial({ map: this.tex, roughness: 0.85, metalness: 0.1 });
+    beltMat.emissive.setHex(0x4da3ff);
+    beltMat.emissiveIntensity = 0;
+    this.beltMat = beltMat;
     const belt = new THREE.Mesh(new THREE.BoxGeometry(w, W3.beltH, 1.15), beltMat);
     belt.position.set(0, W3.beltH / 2, this.z);
     belt.receiveShadow = true;
@@ -92,8 +99,19 @@ export class Conveyor3D {
     this.speed = on ? 0.08 : 0.35;
   }
 
-  tick(dtMs: number) {
-    this.tex.offset.x -= (this.speed * dtMs) / 1000;
+  setHover(on: boolean) {
+    this.hover = on;
+    this.hoverTime = 0;
+    if (!on) this.beltMat.emissiveIntensity = 0;
+  }
+
+  /** Scrolls the belt and pulses the hover glow; `still` (reduced motion) stops the belt and holds the glow. */
+  tick(dtMs: number, still = false) {
+    if (!still) this.tex.offset.x -= (this.speed * dtMs) / 1000;
+    if (!this.hover) return;
+    this.hoverTime += dtMs;
+    const v = still ? 0.7 : 0.5 - 0.5 * Math.cos((this.hoverTime / 700) * Math.PI * 2);
+    this.beltMat.emissiveIntensity = 0.35 + v * 0.35;
   }
 
   /** Frees the belt geometry, its material and scrolling texture. */

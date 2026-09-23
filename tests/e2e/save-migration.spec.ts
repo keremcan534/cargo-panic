@@ -28,6 +28,9 @@ test('v1 progress survives the move to save v2', async ({ page }) => {
   await expect(page.locator('[data-role="play"]')).toBeVisible();
   await expect(page.locator('.menu .chip')).toContainText('★ 12 / 75');
   await expect(page.locator('.menu .chip')).toContainText('5 / 25');
+  // The v1 Endless best is shown apart, as a previous-rules record; no current-ruleset run yet.
+  await expect(page.locator('.menu [data-role="endless-previous"]')).toHaveText('PREVIOUS RULES: BEST 4,321 - WAVE 9');
+  await expect(page.locator('.menu .caption').first()).toHaveText('PROCEDURAL WAVES - ONE MISTAKE ENDS A RUN');
 
   const stored = await page.evaluate(() => ({
     v1: localStorage.getItem('cargo-panic.save.v1'),

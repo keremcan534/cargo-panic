@@ -20,7 +20,39 @@ import { SettingsPanel } from './Panels';
 import { viewControls } from './ViewSettings';
 import { btn, el, fadeIn, fadeOut, iconBtn, setIcon, uiRoot } from './dom';
 
-export function menuScreen(ctx: AppContext): Screen {
+/**
+ * Under PLAY: the current ruleset's Endless best once a run has been played
+ * (otherwise the pitch), plus the best from an older ruleset when the save
+ * has one - shown apart, never mixed into the current record.
+ */
+function endlessCaptions(): HTMLElement[] {
+  const endless = progress.endless;
+  const out: HTMLElement[] = [
+    el('div', {
+      class: `caption ${endless.runs ? 'gold' : ''}`,
+      text: endless.runs
+        ? t('menu.endlessBest', { score: formatScore(endless.bestScore), wave: endless.bestWave })
+        : t('menu.endlessPitch'),
+    }),
+  ];
+  const prev = progress.previousEndless;
+  if (prev) {
+    const c = el('div', {
+      class: 'caption previous',
+      text: t('menu.endlessBestPrevious', { score: formatScore(prev.record.bestScore), wave: prev.record.bestWave }),
+    });
+    c.dataset.role = 'endless-previous';
+    out.push(c);
+  }
+  return out;
+}
+
+export interface MenuOptions {
+  /** Open the settings panel right away (re-entering after a language change). */
+  settings?: boolean;
+}
+
+export function menuScreen(ctx: AppContext, opts: MenuOptions = {}): Screen {
   let root: HTMLElement;
   let backdrop: Backdrop | undefined;
   let settings: SettingsPanel | null = null;
@@ -36,14 +68,13 @@ export function menuScreen(ctx: AppContext): Screen {
 
       const done = progress.completedCount();
       const stars = progress.totalStars();
-      const endless = progress.endless;
 
       const soundBtn = iconBtn(progress.soundOn ? 'sound-on' : 'sound-off', () => {
         const on = !progress.soundOn;
         audio.setEnabled(on);
         setIcon(soundBtn, on ? 'sound-on' : 'sound-off');
         if (on) audio.click();
-      }, 'Sound');
+      }, t('menu.sound'));
 
       // Gear + the view drawing now: the 2D / 3D choice is visible from the title screen.
       const viewLabel = el('span', { class: 'mode', text: '' });
@@ -59,10 +90,8 @@ export function menuScreen(ctx: AppContext): Screen {
       };
       showMode();
       settingsBtn.addEventListener('pointerdown', () => audio.unlock());
-      settingsBtn.addEventListener('click', () => {
+      const openSettings = () => {
         if (settings) return;
-        audio.click();
-        haptics.tap();
         settings = new SettingsPanel({
           view: viewControls(ctx),
           soundOn: progress.soundOn,
@@ -78,23 +107,31 @@ export function menuScreen(ctx: AppContext): Screen {
             haptics.setEnabled(on);
             return on;
           },
+          onReplayTutorial: () => progress.setTutorialSkipped(false),
+          tutorialReplayable: progress.tutorial.skipped || progress.tutorial.done.length > 0,
           onClose: () => {
             settings = null;
           },
         });
+      };
+      settingsBtn.addEventListener('click', () => {
+        if (settings) return;
+        audio.click();
+        haptics.tap();
+        openSettings();
       });
       offHost = ctx.host.onEvent(showMode);
 
       const play = btn(
-        done === 0 ? 'PLAY' : `CONTINUE - LEVEL ${progress.unlocked}`,
+        done === 0 ? t('menu.play') : t('menu.continueLevel', { n: progress.unlocked }),
         () => go((c) => gameScreen(c, { levelId: progress.unlocked })),
         'primary',
         'lg',
       );
       play.dataset.role = 'play';
-      const endlessBtn = btn('ENDLESS SHIFT', () => go((c) => gameScreen(c, { run: newRun(seedFromUrl()) })), 'gold', 'md');
+      const endlessBtn = btn(t('menu.endless'), () => go((c) => gameScreen(c, { run: newRun(seedFromUrl()) })), 'gold', 'md');
       endlessBtn.dataset.role = 'endless';
-      const levels = btn('LEVEL SELECT', () => go(levelSelectScreen), 'secondary', 'md');
+      const levels = btn(t('menu.levels'), () => go(levelSelectScreen), 'secondary', 'md');
       levels.dataset.role = 'levels';
 
       root = el('div', { class: 'screen menu fade-in' }, [
@@ -102,33 +139,36 @@ export function menuScreen(ctx: AppContext): Screen {
         el('div', { class: 'wordmark' }, [
           el('div', { class: 'l1', text: 'CARGO' }),
           el('div', { class: 'l2', text: 'PANIC' }),
-          el('div', { class: 'tagline', text: 'PACK THE WAREHOUSE WITHOUT TIPPING THE SHELVES' }),
+          el('div', { class: 'tagline', text: t('menu.tagline') }),
         ]),
         el('div', { class: 'bottom' }, [
           el('div', { class: 'chip' }, [
-            el('span', { class: 'g', text: `★ ${stars} / ${TOTAL_LEVELS * 3}` }),
-            el('span', { class: 'd', text: `${done} / ${TOTAL_LEVELS} CLEARED` }),
+            el('span', { class: 'g', text: t('menu.starsChip', { stars, total: TOTAL_LEVELS * 3 }) }),
+            el('span', { class: 'd', text: t('menu.clearedChip', { done, total: TOTAL_LEVELS }) }),
           ]),
           play,
-          el('div', {
-            class: `caption ${endless.runs ? 'gold' : ''}`,
-            text: endless.runs
-              ? `BEST ${formatScore(endless.bestScore)}  -  WAVE ${endless.bestWave}`
-              : 'PROCEDURAL WAVES - ONE MISTAKE ENDS A RUN',
-          }),
+          ...endlessCaptions(),
           endlessBtn,
           levels,
           el('div', { class: 'studio', text: 'BLACKBLUE STUDIOS' }),
         ]),
       ]);
       uiRoot().append(root);
+      if (opts.settings) openSettings();
       fadeIn();
     },
     exit() {
       offHost?.();
+      settings?.dismissNow();
+      settings = null;
       backdrop?.dispose();
       backdrop = undefined;
       root.remove();
+    },
+    /** Rebuilt in the new language, with the settings panel (where the language was picked) open. */
+    languageChanged() {
+      const reopen = settings !== null;
+      ctx.router.go((c) => menuScreen(c, { settings: reopen }));
     },
     detachStage() {
       backdrop?.dispose();

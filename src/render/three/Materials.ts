@@ -133,6 +133,7 @@ export const MAT = {
   ghostOk: new THREE.MeshBasicMaterial({ color: 0x3fd68a, transparent: true, opacity: 0.22, depthWrite: false }),
   ghostWarn: new THREE.MeshBasicMaterial({ color: 0xf5c451, transparent: true, opacity: 0.24, depthWrite: false }),
   ghostBad: new THREE.MeshBasicMaterial({ color: 0xff5f57, transparent: true, opacity: 0.24, depthWrite: false }),
+  ghostHint: new THREE.MeshBasicMaterial({ color: 0xffc93c, transparent: true, opacity: 0.2, depthWrite: false }),
   overloadGlow: new THREE.MeshBasicMaterial({ color: 0xff5f57, transparent: true, opacity: 0.0, depthWrite: false }),
   homeFill: new THREE.MeshBasicMaterial({ color: 0xcfe3ff, transparent: true, opacity: 0.07, depthWrite: false }),
   homeEdge: new THREE.LineBasicMaterial({ color: 0xcfe3ff, transparent: true, opacity: 0.45, depthWrite: false }),

@@ -2,26 +2,43 @@
  * Pointer state machine for the game screen. Turns raw pointer events into
  * semantic commands on the GameSession and visual calls on the GameView.
  *
- * A1 supports drag only (A3 adds tap-select / tap-drop on the same command
- * path). Rules it enforces:
+ * Two ways to move a package, one command path. Both end in exactly one
+ * `session.move` or `session.toBelt` on a target the view resolved and the
+ * player was shown (ghost + meter preview from `session.preview`), or in
+ * nothing - so the way a package was moved can never change the rules.
  *
- * - One active pointer. While a package is in hand every other pointer is
- *   ignored; the active one is captured, and pointercancel, lostpointercapture,
- *   window blur and a window resize / orientation change put the package back
- *   where the board says it is.
+ * - DRAG: press on a movable package and move past DRAG_SLOP_PX (or hold for
+ *   DRAG_HOLD_MS and move past DRAG_HOLD_SLOP_PX). Release commits the
+ *   target last shown under the dragged package.
+ * - TAP: press and release on a movable package without that movement
+ *   selects it (`session.hold` only - the board does not change). With a
+ *   selection, pressing anywhere else aims it at the target under the finger
+ *   (`view.targetAt`) and shows that target while the finger is down;
+ *   releasing over the same target commits it, releasing elsewhere does
+ *   nothing and keeps the selection. A tap on the selected package, or on
+ *   empty space, deselects; a tap on another package selects that one.
+ *
+ * Rules it enforces:
+ *
+ * - One active pointer. While a press, drag or aiming press is active every
+ *   other pointer is ignored (it cannot pick, aim or commit); the active one
+ *   is captured, and pointercancel, lostpointercapture, window blur, the page
+ *   going hidden and a window resize / orientation change cancel it: the
+ *   board does not change and a dragged package goes back. A selection
+ *   survives a cancel; a view switch (setView / reset) clears it.
  * - The surface is the stable #game-root element, not the stage canvas, so a
  *   view switch only swaps the view (setView), never the listeners.
- * - Picking up is `session.hold()` only - the board does not change.
- * - Release commits exactly the target that was last shown (ghost / belt
- *   highlight), never a fresh hit-test: one `move` or one `toBelt`, or nothing.
+ * - Release commits exactly the target that was last shown, never a fresh
+ *   hit-test: one `move` or one `toBelt`, or nothing.
+ * - A refused target (reason from the rules) changes nothing; a dragged
+ *   package goes back, a selected one stays selected.
  *
  * No three.js and no screen maths here: the view reports belt-or-slot targets.
  */
 
 import { PACKAGE_SPECS } from '../game/levels/types';
 import type { GameSession } from '../game/session';
-import type { TargetKind } from '../game/session/types';
-import { rejectionMessage } from '../game/systems/BalanceSystem';
+import type { CargoLocation, TargetKind } from '../game/session/types';
 import type { PlaceRejection } from '../game/systems/BalanceSystem';
 import type { DropTarget, GameView, PointerSample } from '../render/GameView';
 
@@ -35,20 +52,22 @@ export interface PointerInput {
 
 /** UI feedback for the game controller (DOM, audio, haptics). */
 export interface InteractionHooks {
-  /** A package was picked up (before the view starts the drag). */
+  /** A press landed on a package (it may become a drag or a tap-select). */
   grabbed(cargoId: number): void;
-  /** Net torque the drop being aimed would leave, or null for no preview. */
+  /** Net torque the target being aimed would leave, or null for no preview. */
   preview(net: number | null): void;
-  /** The pointer entered / left the belt drop area. */
+  /** The belt is (or is no longer) the target being shown. */
   beltHover(on: boolean): void;
-  /** A drop on a slot the rules refuse. The package is already on its way back. */
-  rejected(reason: string): void;
-  /** A move was committed; the controller re-syncs the board. */
-  placed(cargoId: number, quiet: boolean): void;
+  /** A target the rules refuse (the reason code; the UI words it). Nothing changed. */
+  rejected(reason: PlaceRejection): void;
+  /** A move was committed (`from` is where the package was); the controller re-syncs the board. */
+  placed(cargoId: number, quiet: boolean, from: CargoLocation): void;
   /** The committed package touched down on its shelf. */
   landed(cargoId: number): void;
   /** A stowed package was committed back to the belt. */
   toBelt(cargoId: number): void;
+  /** The tap selection changed (a package id, or null for none). */
+  selected?(cargoId: number | null): void;
 }
 
 /** Event source the controller listens on (#game-root in the game: it outlives any canvas). */
@@ -60,36 +79,63 @@ export interface PointerSurface {
   hasPointerCapture?(pointerId: number): boolean;
 }
 
+type EventSource = Pick<PointerSurface, 'addEventListener' | 'removeEventListener'>;
+
 export interface InteractionOptions {
   surface: PointerSurface;
   session: GameSession;
   view: GameView;
   hooks: InteractionHooks;
   /** Source of blur / resize / orientationchange; defaults to `window` when there is one. */
-  blurTarget?: Pick<PointerSurface, 'addEventListener' | 'removeEventListener'> | null;
+  blurTarget?: EventSource | null;
+  /** Source of `visibilitychange` with a `visibilityState`; defaults to `document` when there is one. */
+  visibilityTarget?: (EventSource & { readonly visibilityState?: string }) | null;
+  /** Milliseconds clock for the hold-to-drag rule (tests inject one). */
+  now?: () => number;
 }
 
 type Shown =
-  | { kind: 'slot'; shelf: number; slot: number; ghost: TargetKind; reason: string }
+  | { kind: 'slot'; shelf: number; slot: number; ghost: TargetKind }
   | { kind: 'belt' };
 
-interface Active {
+/** A press that started on a movable package: a tap until it moves enough to be a drag. */
+interface CargoPress {
+  kind: 'cargo';
   pointerId: number;
   cargoId: number;
   slots: number;
-  /** Where the press started, and whether it has since moved past DRAG_SLOP_PX. */
-  x0: number;
-  y0: number;
-  moved: boolean;
+  /** Where and when the press started (the drag starts from here). */
+  start: PointerSample;
+  t0: number;
+  dragging: boolean;
+  /** The package was the selection when the press began: a tap on it deselects. */
+  wasSelected: boolean;
 }
+
+/** A press elsewhere while a package is selected: aims the selection at the target under the finger. */
+interface AimPress {
+  kind: 'aim';
+  pointerId: number;
+  cargoId: number;
+  slots: number;
+  /** Latest pointer position; the target is re-resolved from it every frame (the rack leans). */
+  last: PointerSample;
+  /** A target was shown when the finger went down (a press on empty space deselects on release). */
+  startedOnTarget: boolean;
+}
+
+type Press = CargoPress | AimPress;
 
 /**
  * A press only becomes a drag that can aim at a target once the pointer has
  * travelled this far (CSS px). Without it a quick click or a still finger on
  * the live belt package could land it on the bottom shelf while the view was
- * still easing it off the belt.
+ * still easing it off the belt - and it is what tells a tap from a drag.
  */
 export const DRAG_SLOP_PX = 8;
+/** A press held this long becomes a drag on a smaller movement (a slow, careful drag). */
+export const DRAG_HOLD_MS = 180;
+export const DRAG_HOLD_SLOP_PX = 4;
 
 export class InteractionController {
   private readonly surface: PointerSurface;
@@ -97,9 +143,13 @@ export class InteractionController {
   private view: GameView;
   private readonly hooks: InteractionHooks;
   private readonly blurTarget: InteractionOptions['blurTarget'];
+  private readonly visibilityTarget: InteractionOptions['visibilityTarget'];
+  private readonly now: () => number;
 
-  private active: Active | null = null;
-  /** What the player currently sees as the drop target; release commits this. */
+  private press: Press | null = null;
+  /** The tap-selected package (held in the session), or null. */
+  private selectedId: number | null = null;
+  /** What the player currently sees as the target; a release commits this. */
   private shown: Shown | null = null;
   private beltOn = false;
   private attached = false;
@@ -111,17 +161,30 @@ export class InteractionController {
     this.hooks = opts.hooks;
     this.blurTarget =
       opts.blurTarget !== undefined ? opts.blurTarget : typeof window !== 'undefined' ? window : null;
+    this.visibilityTarget =
+      opts.visibilityTarget !== undefined ? opts.visibilityTarget : typeof document !== 'undefined' ? document : null;
+    this.now = opts.now ?? (() => (typeof performance !== 'undefined' ? performance.now() : Date.now()));
   }
 
-  /** Package id in hand, or null. */
+  /** Package being pressed, dragged or aimed, else the selected one, else null. */
   get holding(): number | null {
-    return this.active?.cargoId ?? null;
+    return this.press?.cargoId ?? this.selectedId;
   }
 
-  /** The target currently shown for the package in hand - what a release would commit. */
+  /** The tap-selected package, or null. */
+  get selection(): number | null {
+    return this.selectedId;
+  }
+
+  /** A package is being dragged (not just pressed or selected). */
+  get dragging(): boolean {
+    return this.press?.kind === 'cargo' && this.press.dragging;
+  }
+
+  /** The target currently shown - what a release would commit - while a drag or an aiming press is active. */
   get aimed(): DropTarget | null {
     const s = this.shown;
-    if (!this.active || !s) return null;
+    if (!this.press || !s) return null;
     return s.kind === 'belt' ? { kind: 'belt' } : { kind: 'slot', shelf: s.shelf, slot: s.slot };
   }
 
@@ -133,10 +196,11 @@ export class InteractionController {
     s.addEventListener('pointermove', this.onMove);
     s.addEventListener('pointerup', this.onUp);
     s.addEventListener('pointercancel', this.onCancel);
-    s.addEventListener('lostpointercapture', this.onLost);
+    s.addEventListener('lostpointercapture', this.onCancel);
     this.blurTarget?.addEventListener('blur', this.onBlur);
     this.blurTarget?.addEventListener('resize', this.onBlur);
     this.blurTarget?.addEventListener('orientationchange', this.onBlur);
+    this.visibilityTarget?.addEventListener('visibilitychange', this.onVisibility);
   }
 
   /** Stops listening. Does not touch the session or the view (the screen is going away). */
@@ -148,35 +212,39 @@ export class InteractionController {
     s.removeEventListener('pointermove', this.onMove);
     s.removeEventListener('pointerup', this.onUp);
     s.removeEventListener('pointercancel', this.onCancel);
-    s.removeEventListener('lostpointercapture', this.onLost);
+    s.removeEventListener('lostpointercapture', this.onCancel);
     this.blurTarget?.removeEventListener('blur', this.onBlur);
     this.blurTarget?.removeEventListener('resize', this.onBlur);
     this.blurTarget?.removeEventListener('orientationchange', this.onBlur);
-    const a = this.active;
-    this.active = null;
+    this.visibilityTarget?.removeEventListener('visibilitychange', this.onVisibility);
+    const p = this.press;
+    this.press = null;
     this.shown = null;
-    if (a) this.releaseCapture(a.pointerId);
+    this.selectedId = null;
+    if (p) this.releaseCapture(p.pointerId);
   }
 
   private onDown = (e: Event) => this.down(e as unknown as PointerInput);
   private onMove = (e: Event) => this.move(e as unknown as PointerInput);
   private onUp = (e: Event) => this.up(e as unknown as PointerInput);
+  /** pointercancel / lostpointercapture of the active pointer. Others are ignored. */
   private onCancel = (e: Event) => {
-    if (this.active && (e as unknown as PointerInput).pointerId === this.active.pointerId) this.cancel();
-  };
-  private onLost = (e: Event) => {
-    if (this.active && (e as unknown as PointerInput).pointerId === this.active.pointerId) this.cancel();
+    if (this.press && (e as unknown as PointerInput).pointerId === this.press.pointerId) this.cancel();
   };
   /** Blur, resize, orientation change: the layout under the finger is no longer trusted. */
   private onBlur = () => this.cancel();
+  private onVisibility = () => {
+    if (this.visibilityTarget?.visibilityState === 'hidden') this.cancel();
+  };
 
   /**
    * Points the controller at a new view (after a render-mode switch). A drag
-   * still in hand is put back on the old view first; the listeners stay.
+   * still in hand is put back on the old view first and the selection is
+   * cleared; the listeners stay.
    */
   setView(view: GameView) {
     if (view === this.view) return;
-    this.cancel();
+    this.reset();
     this.view = view;
   }
 
@@ -185,78 +253,202 @@ export class InteractionController {
   // ==========================================================================
 
   down(e: PointerInput) {
-    if (this.active) return; // one package, one pointer
+    if (this.press) return; // one pointer at a time: a second finger never picks, aims or commits
     const s = this.session;
     if (s.phase !== 'play') return;
+    this.syncSelection();
     const p = sample(e);
     const id = this.view.pickCargo(p, s.movable());
-    if (id === null) return;
-    if (!s.hold(id)) return;
-    this.active = { pointerId: e.pointerId, cargoId: id, slots: slotsOf(s, id), x0: e.clientX, y0: e.clientY, moved: false };
-    this.shown = null;
-    try {
-      this.surface.setPointerCapture?.(e.pointerId);
-    } catch {
-      /* synthetic or already-ended pointer: nothing to capture */
+
+    if (id !== null) {
+      const wasSelected = this.selectedId === id;
+      // Pressing another package lets go of the selection (a tap on it selects it instead).
+      if (this.selectedId !== null && !wasSelected) this.deselect();
+      if (!s.hold(id)) return;
+      this.press = {
+        kind: 'cargo',
+        pointerId: e.pointerId,
+        cargoId: id,
+        slots: slotsOf(s, id),
+        start: p,
+        t0: this.now(),
+        dragging: false,
+        wasSelected,
+      };
+      this.shown = null;
+      this.capture(e.pointerId);
+      this.hooks.grabbed(id);
+      return;
     }
-    this.hooks.grabbed(id);
-    this.view.beginDrag(id, p);
+
+    const sel = this.selectedId;
+    if (sel === null) return;
+    // With a selection, a press anywhere else aims it: the target shows while the finger is down.
+    const aim: AimPress = {
+      kind: 'aim',
+      pointerId: e.pointerId,
+      cargoId: sel,
+      slots: slotsOf(s, sel),
+      last: p,
+      startedOnTarget: false,
+    };
+    this.press = aim;
+    this.shown = null;
+    this.capture(e.pointerId);
+    this.aimAt(aim);
+    aim.startedOnTarget = this.shown !== null;
   }
 
   move(e: PointerInput) {
-    const a = this.active;
-    if (!a || e.pointerId !== a.pointerId) return;
-    if (!a.moved && Math.hypot(e.clientX - a.x0, e.clientY - a.y0) > DRAG_SLOP_PX) a.moved = true;
-    this.view.moveDrag(sample(e));
+    const pr = this.press;
+    if (!pr || e.pointerId !== pr.pointerId) return;
+    const p = sample(e);
+    if (pr.kind === 'aim') {
+      pr.last = p;
+      this.aimAt(pr);
+      return;
+    }
+    if (!pr.dragging) {
+      const d = Math.hypot(p.clientX - pr.start.clientX, p.clientY - pr.start.clientY);
+      const longPress = this.now() - pr.t0 >= DRAG_HOLD_MS;
+      if (d <= DRAG_SLOP_PX && !(longPress && d > DRAG_HOLD_SLOP_PX)) return;
+      this.beginDrag(pr);
+    }
+    this.view.moveDrag(p);
   }
 
   up(e: PointerInput) {
-    const a = this.active;
-    if (!a || e.pointerId !== a.pointerId) return;
+    const pr = this.press;
+    if (!pr || e.pointerId !== pr.pointerId) return;
     const shown = this.shown;
-    this.endHold();
-    this.commit(a.cargoId, shown);
+
+    if (pr.kind === 'cargo') {
+      this.endPress();
+      if (pr.dragging) {
+        this.view.endDrag();
+        this.commit(pr.cargoId, shown, 'drag');
+      } else {
+        this.tapPackage(pr);
+      }
+      return;
+    }
+
+    // An aiming press: commit only if the finger lifts over the target it was shown.
+    const at = this.view.targetAt(sample(e), pr.slots);
+    this.endPress();
+    if (shown && sameTarget(at, shown)) this.commit(pr.cargoId, shown, 'tap');
+    else if (!shown && !pr.startedOnTarget && at === null) this.deselect(); // a tap on empty space
+    // Released off the target it showed: nothing happens and the selection stays.
   }
 
   /**
-   * Puts the package in hand back where the board says it is. Nothing changes
-   * in the session. Used for pointercancel, lost capture, window blur, and
-   * when pause or the cargo guide opens mid-drag.
+   * Cancels the press in progress. Nothing changes in the session: a dragged
+   * package goes back where the board says it is, a selection stays. Used
+   * for pointercancel, lost capture, blur, the page going hidden, and when
+   * pause or the cargo guide opens.
    */
   cancel() {
-    const a = this.active;
-    if (!a) return;
-    this.endHold();
-    this.session.release(a.cargoId);
-    this.view.cargoReturn(a.cargoId);
+    const pr = this.press;
+    if (!pr) return;
+    this.endPress();
+    if (pr.kind !== 'cargo') return;
+    if (pr.dragging) {
+      this.view.endDrag();
+      this.session.release(pr.cargoId);
+      this.view.cargoReturn(pr.cargoId);
+    } else if (!pr.wasSelected) {
+      this.session.release(pr.cargoId);
+    }
+  }
+
+  /** Cancels any press and clears the selection (view switch, undo, hint, restart). */
+  reset() {
+    this.cancel();
+    this.deselect();
+  }
+
+  /** Clears the tap selection, if any. The board is untouched. */
+  deselect() {
+    const id = this.selectedId;
+    if (id === null) return;
+    this.selectedId = null;
+    this.session.release(id);
+    this.view.setSelected(null);
+    this.hooks.selected?.(null);
   }
 
   /**
-   * The shipment ended while a package was in hand. Forget the pointer (its
-   * pointerup will be ignored); the view's outcome call settles the package.
+   * The shipment ended while a package was pressed, dragged or selected.
+   * Forget the pointer (its pointerup will be ignored) and the selection; the
+   * view's outcome call settles the package.
    */
   abort() {
-    const a = this.active;
-    if (!a) return;
-    this.active = null;
+    const pr = this.press;
+    this.press = null;
     this.shown = null;
-    this.releaseCapture(a.pointerId);
+    if (pr) this.releaseCapture(pr.pointerId);
     this.view.hideGhost();
     this.hooks.preview(null);
     this.setBelt(false);
+    if (this.selectedId !== null) {
+      this.selectedId = null;
+      this.view.setSelected(null);
+      this.hooks.selected?.(null);
+    }
   }
 
   // ==========================================================================
   // Per frame
   // ==========================================================================
 
-  /** Reads the view's drag target once (after view.update) and shows its preview. */
+  /** Reads the view's target once (after view.update) and shows its preview. */
   update() {
-    const a = this.active;
-    if (!a) return;
-    // Until the pointer has really moved, nothing is aimed and a release changes nothing.
-    const t = a.moved ? this.view.dragTarget() : null;
+    this.syncSelection();
+    const pr = this.press;
+    if (!pr) return;
+    if (pr.kind === 'aim') {
+      // The rack leans and settles under a still finger: keep the target honest.
+      this.aimAt(pr);
+      return;
+    }
+    // Until the press is a drag, nothing is aimed and a release changes nothing.
+    if (!pr.dragging) return;
+    this.show(pr.cargoId, pr.slots, this.view.dragTarget());
+  }
 
+  // ==========================================================================
+  // Internals
+  // ==========================================================================
+
+  private beginDrag(pr: CargoPress) {
+    pr.dragging = true;
+    if (this.selectedId === pr.cargoId) {
+      // Dragging the selected package: it is in hand now, not selected.
+      this.selectedId = null;
+      this.view.setSelected(null);
+      this.hooks.selected?.(null);
+    }
+    this.view.beginDrag(pr.cargoId, pr.start);
+  }
+
+  /** Press and release on a package without dragging it. */
+  private tapPackage(pr: CargoPress) {
+    if (pr.wasSelected) {
+      this.deselect();
+      return;
+    }
+    // The session already holds it (input state only).
+    this.selectedId = pr.cargoId;
+    this.view.setSelected(pr.cargoId);
+    this.hooks.selected?.(pr.cargoId);
+  }
+
+  private aimAt(pr: AimPress) {
+    this.show(pr.cargoId, pr.slots, this.view.targetAt(pr.last, pr.slots));
+  }
+
+  /** Shows a target (ghost + meter preview, or the belt) and remembers it as what a release commits. */
+  private show(id: number, slots: number, t: DropTarget | null) {
     if (t?.kind === 'belt') {
       this.shown = { kind: 'belt' };
       this.view.hideGhost();
@@ -274,36 +466,36 @@ export class InteractionController {
     }
 
     const target = { shelf: t.shelf, slot: t.slot };
-    const pv = this.session.preview(a.cargoId, t.shelf, t.slot);
+    const pv = this.session.preview(id, t.shelf, t.slot);
     if (pv.kind === 'bad' || !pv.evaluation) {
-      const reason = pv.rejection ? rejectionMessage(pv.rejection) : '';
-      this.shown = { kind: 'slot', ...target, ghost: 'bad', reason };
-      this.view.showGhost(target, a.slots, 'bad');
+      this.shown = { kind: 'slot', ...target, ghost: 'bad' };
+      this.view.showGhost(target, slots, 'bad');
       this.hooks.preview(null);
       return;
     }
-    const reason = pv.willCrush ? 'CRUSHES FRAGILE CARGO' : pv.willOverload ? 'OVER LOAD LIMIT' : '';
-    this.shown = { kind: 'slot', ...target, ghost: pv.kind, reason };
-    this.view.showGhost(target, a.slots, pv.kind);
+    this.shown = { kind: 'slot', ...target, ghost: pv.kind };
+    this.view.showGhost(target, slots, pv.kind);
     this.hooks.preview(pv.evaluation.net);
   }
 
-  // ==========================================================================
-  // Internals
-  // ==========================================================================
-
-  private endHold() {
-    const a = this.active;
-    this.active = null;
+  /** Ends the press: capture, ghost, preview and belt highlight go; the session is not touched. */
+  private endPress() {
+    const pr = this.press;
+    this.press = null;
     this.shown = null;
-    if (a) this.releaseCapture(a.pointerId);
-    this.view.endDrag();
+    if (pr) this.releaseCapture(pr.pointerId);
     this.view.hideGhost();
     this.hooks.preview(null);
     this.setBelt(false);
   }
 
-  private commit(id: number, shown: Shown | null) {
+  /**
+   * The one place a package is moved: the same session commands for a drag
+   * and a tap. Only the look differs - a dragged package flies back when
+   * nothing happens, a selected one simply stays selected (refused) or is
+   * let go (no change).
+   */
+  private commit(id: number, shown: Shown | null, via: 'drag' | 'tap') {
     const s = this.session;
     const v = this.view;
 
@@ -311,32 +503,58 @@ export class InteractionController {
       const target = { shelf: shown.shelf, slot: shown.slot };
       const r = s.move(id, shown.shelf, shown.slot);
       if (r.ok && r.changed) {
+        if (via === 'tap') this.dropSelection();
         v.cargoPlaced(id, target, { quiet: false, onLanded: () => this.hooks.landed(id) });
-        this.hooks.placed(id, false);
+        this.hooks.placed(id, false, r.from);
         return;
       }
       if (!r.ok) {
-        if (isPlaceRejection(r.rejection)) this.hooks.rejected(shown.reason || rejectionMessage(r.rejection));
-        v.cargoReturn(id);
+        if (isPlaceRejection(r.rejection)) this.hooks.rejected(r.rejection);
+        if (via === 'drag') v.cargoReturn(id);
+        else if (!s.hold(id)) this.deselect(); // refused: the selection stays
         return;
       }
-      // Dropped back on its own slot: nothing changed, land quietly.
-      v.cargoReturn(id);
+      // Its own slot: nothing changed.
+      if (via === 'drag') v.cargoReturn(id);
+      else this.deselect();
       return;
     }
 
     if (shown?.kind === 'belt' && s.locationOf(id)?.at === 'shelf') {
       const r = s.toBelt(id);
       if (r.ok && r.changed) {
+        if (via === 'tap') this.dropSelection();
         v.cargoToBelt(id);
         this.hooks.toBelt(id);
         return;
       }
     }
 
-    // A belt package dropped on the belt, or no target: back where it was.
+    // A belt package sent to the belt, or no target: back where it was.
     s.release(id);
-    v.cargoReturn(id);
+    if (via === 'drag') v.cargoReturn(id);
+    else this.deselect();
+  }
+
+  /** The selected package was just moved by a command (which already let go of it). */
+  private dropSelection() {
+    if (this.selectedId === null) return;
+    this.selectedId = null;
+    this.view.setSelected(null);
+    this.hooks.selected?.(null);
+  }
+
+  /**
+   * Keeps the session's hold on the selection. Pausing lets go of whatever is
+   * held; when play resumes the selection is held again - or dropped if the
+   * package can no longer be picked up.
+   */
+  private syncSelection() {
+    const id = this.selectedId;
+    if (id === null) return;
+    const s = this.session;
+    if (s.phase !== 'play' || s.held === id) return;
+    if (!s.hold(id)) this.deselect();
   }
 
   private setBelt(on: boolean) {
@@ -346,7 +564,15 @@ export class InteractionController {
     this.hooks.beltHover(on);
   }
 
-  /** Called after `active` is cleared, so a synchronous lostpointercapture finds nothing to cancel. */
+  private capture(pointerId: number) {
+    try {
+      this.surface.setPointerCapture?.(pointerId);
+    } catch {
+      /* synthetic or already-ended pointer: nothing to capture */
+    }
+  }
+
+  /** Called after `press` is cleared, so a synchronous lostpointercapture finds nothing to cancel. */
   private releaseCapture(pointerId: number) {
     try {
       if (this.surface.hasPointerCapture?.(pointerId) ?? true) this.surface.releasePointerCapture?.(pointerId);
@@ -362,6 +588,12 @@ function sample(e: PointerInput): PointerSample {
 
 function slotsOf(s: GameSession, id: number): number {
   return PACKAGE_SPECS[s.level.packages[id]].slots;
+}
+
+function sameTarget(a: DropTarget | null, b: Shown): boolean {
+  if (!a) return false;
+  if (a.kind === 'belt' || b.kind === 'belt') return a.kind === b.kind;
+  return a.shelf === b.shelf && a.slot === b.slot;
 }
 
 function isPlaceRejection(r: string): r is PlaceRejection {

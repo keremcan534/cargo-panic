@@ -11,11 +11,13 @@
  */
 
 import { progress } from '../game/systems/ProgressManager';
-import { t } from '../i18n';
+import type { LanguagePref } from '../game/save/schema';
+import { getLanguage, t } from '../i18n';
 import type { RenderMode } from '../render/GameView';
 import type { QualityPref, Stage } from '../render/Stage';
 import { showNotice } from '../ui/Notice';
 import { FrameLoop } from './FrameLoop';
+import { applyLanguage, applyMotionClass, effectiveReducedMotion, onSystemMotionChange } from './Preferences';
 import { Router } from './Router';
 import type { AppContext } from './Router';
 import type { HostEvent, StageHost, SwitchResult } from './StageHost';
@@ -40,6 +42,9 @@ export class App {
       attach: (stage, result) => this.router.current?.attachStage?.(stage, result),
     });
     host.onEvent((e) => this.onHostEvent(e));
+    // "System" follows the device live: a change there reaches the running game.
+    onSystemMotionChange(() => this.applyReducedMotion());
+    this.applyReducedMotion();
   }
 
   get stage(): Stage {
@@ -73,6 +78,29 @@ export class App {
   setQuality(q: QualityPref) {
     if (progress.settings.quality !== q) progress.setQuality(q);
     this.host.stageOrNull?.setQuality(q);
+  }
+
+  /** Stores the reduced-motion choice (null = follow the system) and applies it now. */
+  setReducedMotion(pref: boolean | null) {
+    if (progress.settings.reducedMotion !== pref) progress.setReducedMotion(pref);
+    this.applyReducedMotion();
+  }
+
+  /** The value in force: the <html> class for CSS, and the live stage (a new stage reads it at creation). */
+  applyReducedMotion() {
+    const on = effectiveReducedMotion();
+    applyMotionClass(on);
+    this.host.stageOrNull?.setReducedMotion(on);
+  }
+
+  /**
+   * Stores the language choice (null = follow the device) and applies it. If
+   * the text language changed, the current screen re-renders its DOM.
+   */
+  setLanguage(pref: LanguagePref | null) {
+    if (progress.settings.language !== pref) progress.setLanguage(pref);
+    const before = getLanguage();
+    if (applyLanguage() !== before) this.router.current?.languageChanged?.();
   }
 
   private onHostEvent(e: HostEvent) {

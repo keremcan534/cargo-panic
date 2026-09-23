@@ -59,7 +59,7 @@ const DEG = Math.PI / 180;
 /** Conveyor3D belt speeds, world units per second. */
 const BELT_SPEED = 0.35;
 const BELT_SPEED_DRAG = 0.08;
-/** Visual lift of a tap-selected package. */
+/** Visual lift of a tap-selected stowed package (a belt package only gets the ring: it would cover the bottom shelf's label). */
 const SELECT_LIFT = 0.12;
 
 const GHOST: Record<TargetKind | 'hint', { line: string; fill: string; pattern: string; icon: IconKind }> = {
@@ -1269,7 +1269,7 @@ export class Canvas2DGameView implements GameView, Layer2D {
     const spr = this.sprite(box.type, box.cracked);
     const k = box.k.v;
     let lift = 0;
-    if (box.id === this.selected && box.mode === 'rest') lift = this.selectLift;
+    if (box.id === this.selected && box.mode === 'rest' && box.loc.at === 'shelf') lift = this.selectLift;
     let rot = box.r.v;
     if (box.cracked && box.mode === 'rest' && !this.host.reducedMotion) {
       // Cargo3D.setCracking: a nervous 70 ms judder.
@@ -1433,30 +1433,32 @@ export class Canvas2DGameView implements GameView, Layer2D {
     drawIcon(ctx, 'crush', x, y, r, '#ff5f57');
   }
 
-  /** Highlight on a shelf or a stowed package (rack space). */
+  /** Highlight on a shelf or on stowed packages (rack space). */
   private drawRackSpot(ctx: CanvasRenderingContext2D, s: number) {
     const h = this.spot;
     const rack = this.rack;
     if (!h || !rack) return;
-    let box: { x: number; y: number; w: number; h: number } | null = null;
     if ('shelf' in h) {
       if (!this.level?.shelves[h.shelf]) return;
-      box = rack.tierBox(h.shelf);
-    } else {
-      const b = this.boxes[h.cargo];
-      if (!b || b.space !== 'rack' || !b.visible) return;
-      box = this.boxRect(b, s);
+      this.drawSpot(ctx, rack.tierBox(h.shelf), s, true);
+      return;
     }
-    this.drawSpot(ctx, box, s);
+    for (const id of [h.cargo, ...(h.others ?? [])]) {
+      const b = this.boxes[id];
+      if (!b || b.space !== 'rack' || !b.visible) continue;
+      this.drawSpot(ctx, this.boxRect(b, s), s, id === h.cargo);
+    }
   }
 
-  /** Highlight on a package in world space (belt, falling). */
+  /** Highlight on packages in world space (belt, falling). */
   private drawWorldSpot(ctx: CanvasRenderingContext2D, s: number) {
     const h = this.spot;
     if (!h || !('cargo' in h)) return;
-    const b = this.boxes[h.cargo];
-    if (!b || b.space !== 'world' || !b.visible) return;
-    this.drawSpot(ctx, this.boxRect(b, s), s);
+    for (const id of [h.cargo, ...(h.others ?? [])]) {
+      const b = this.boxes[id];
+      if (!b || b.space !== 'world' || !b.visible) continue;
+      this.drawSpot(ctx, this.boxRect(b, s), s, id === h.cargo);
+    }
   }
 
   private boxRect(b: Box, s: number) {
@@ -1465,7 +1467,8 @@ export class Canvas2DGameView implements GameView, Layer2D {
     return { x: b.p.x * s - w / 2, y: -b.p.y * s - h / 2, w, h };
   }
 
-  private drawSpot(ctx: CanvasRenderingContext2D, r: { x: number; y: number; w: number; h: number }, s: number) {
+  /** Pulsing gold outline, plus (`marker`) the arrow above it. */
+  private drawSpot(ctx: CanvasRenderingContext2D, r: { x: number; y: number; w: number; h: number }, s: number, marker: boolean) {
     const v = this.pulse(1000);
     const g = 3 + v * 4;
     ctx.strokeStyle = `rgba(255,201,60,${(0.25 + v * 0.35).toFixed(3)})`;
@@ -1475,6 +1478,7 @@ export class Canvas2DGameView implements GameView, Layer2D {
     ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 2.5;
     ctx.stroke();
+    if (!marker) return;
     const ir = Math.max(9, 0.2 * s);
     drawIcon(ctx, 'down', r.x + r.w / 2, r.y - g - ir - 2 - v * 3, ir, '#ffc93c');
   }

@@ -35,6 +35,8 @@ html, body {
 #ui-root { position: absolute; inset: 0; pointer-events: none; }
 #ui-root > * { pointer-events: none; }
 #ui-root button, #ui-root .tappable { pointer-events: auto; }
+/* A modal blocks what is under it (HUD buttons, the guide's SKIP): `#ui-root > *` would otherwise win over .modal. */
+#ui-root > .modal { pointer-events: auto; }
 
 /* Pre-render splash so the first paint is never a black void. */
 #boot-splash {
@@ -119,7 +121,7 @@ html, body {
 .meter .ghost { position: absolute; left: 50%; top: -12px; width: 0; height: 0; margin-left: -8px; opacity: 0;
   border-left: 8px solid transparent; border-right: 8px solid transparent; border-top: 13px solid var(--warm); will-change: transform; }
 .meter .ghost.on { opacity: .9; }
-.meter .lr { display: flex; justify-content: space-between; margin-top: 4px; font-size: clamp(.72rem, 3vw, .95rem); color: var(--dim); }
+.meter .lr { display: flex; justify-content: space-between; margin-top: 4px; font-size: clamp(.78rem, 3.3vw, .95rem); color: var(--dim); }
 .meter .lr .lit { color: var(--text); }
 
 /* ------------------------------------------------------------ overlays */
@@ -141,6 +143,9 @@ html, body {
   transition: opacity 160ms ease, transform 160ms cubic-bezier(.34,1.56,.64,1);
 }
 .hazard.on { opacity: 1; transform: translate(-50%, 0) scale(1); }
+.hazard .line { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.hazard .warn-icon { flex: 0 0 auto; width: 1.5em; height: 1.5em; display: inline-flex; }
+.hazard .warn-icon svg { width: 100%; height: 100%; }
 .hazard .bar { height: 8px; border-radius: 4px; background: rgba(42,5,3,.45); margin-top: 8px; overflow: hidden; }
 .hazard .bar i { display: block; height: 100%; background: rgba(255,255,255,.92); width: 100%; transform-origin: left; }
 
@@ -155,10 +160,22 @@ html, body {
 
 .controls {
   position: absolute; left: 14px; right: 14px; bottom: calc(12px + var(--safe-bottom));
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  display: grid; grid-template-columns: 48px 1fr auto auto; grid-template-areas: "help text undo hint";
+  align-items: center; gap: 8px 10px;
 }
-.controls .hint-text { font-size: clamp(.72rem, 3vw, .95rem); color: var(--faint); line-height: 1.3; flex: 1; }
-.controls .btn.sm { width: min(34vw, 196px); height: clamp(48px, 7vh, 62px); font-size: clamp(1rem, 4.2vw, 1.35rem); }
+.controls .help { grid-area: help; }
+.controls .hint-text { grid-area: text; }
+.controls .btn.undo { grid-area: undo; }
+.controls .btn.gold { grid-area: hint; }
+/* Narrow phones: the how-to line gets its own row above the buttons. */
+@media (max-width: 560px) {
+  .controls { grid-template-columns: 48px 1fr auto auto; grid-template-areas: "text text text text" "help . undo hint"; }
+  .controls .hint-text { text-align: center; }
+}
+.controls .btn.undo.off { filter: grayscale(.6) brightness(.7); box-shadow: 0 2px 0 rgba(0,0,0,.35); }
+.controls .hint-text { font-size: clamp(.78rem, 3.3vw, .95rem); color: var(--faint); line-height: 1.3; flex: 1; white-space: pre-line; }
+.controls .hint-text.selected { color: #8cc4ff; font-weight: 800; }
+.controls .btn.sm { width: min(30vw, 180px); height: clamp(48px, 7vh, 62px); font-size: clamp(1rem, 4.2vw, 1.35rem); padding: 0 .6rem; }
 
 .belt-zone {
   position: absolute; left: 12px; right: 12px; bottom: calc(76px + var(--safe-bottom)); height: 22vh;
@@ -259,8 +276,9 @@ html, body {
 .menu .bottom { display: flex; flex-direction: column; align-items: center; gap: 12px; width: 100%; }
 .menu .chip { display: flex; gap: 18px; align-items: center; background: rgba(11,16,23,.8); border: 2px solid var(--panel-edge); border-radius: 999px; padding: 8px 22px; font-weight: 800; font-size: clamp(.9rem, 3.8vw, 1.2rem); }
 .menu .chip .g { color: var(--gold); } .menu .chip .d { color: var(--dim); }
-.menu .caption { font-size: clamp(.72rem, 3vw, .95rem); font-weight: 800; color: var(--faint); margin-top: -2px; }
+.menu .caption { font-size: clamp(.78rem, 3.3vw, .95rem); font-weight: 800; color: var(--faint); margin-top: -2px; text-align: center; max-width: 92vw; padding: 0 12px; }
 .menu .caption.gold { color: var(--gold); }
+.menu .caption.previous { color: var(--dim); font-weight: 400; margin-top: -8px; }
 .menu .studio { color: #4b5b70; font-size: .8rem; margin-top: 4px; }
 
 .levels { padding: calc(14px + var(--safe-top)) 14px calc(14px + var(--safe-bottom)); justify-content: space-between; }
@@ -288,13 +306,13 @@ html, body {
 
 /* ------------------------------------------------------ view settings */
 .view-settings { width: min(100%, 470px); display: flex; flex-direction: column; gap: 10px; margin: 2px 0 4px; }
-.view-settings .setting { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.view-settings .setting { display: flex; align-items: center; justify-content: space-between; gap: 6px 12px; flex-wrap: wrap; }
 .view-settings .setting[hidden] { display: none; }
 .view-settings .label { font-weight: 800; color: var(--dim); font-size: clamp(.85rem, 3.6vw, 1.05rem); letter-spacing: .03em; text-align: left; }
 .seg { display: inline-flex; padding: 4px; gap: 4px; border-radius: 16px; background: #0d1420; border: 2px solid var(--panel-edge); }
 .seg-btn {
   pointer-events: auto; border: 0; cursor: pointer; font-family: var(--font); font-weight: 800; color: var(--dim);
-  background: transparent; border-radius: 12px; min-width: 56px; min-height: 48px; padding: 0 14px;
+  background: transparent; border-radius: 12px; min-width: 56px; min-height: 48px; padding: 0 12px;
   font-size: clamp(.9rem, 3.8vw, 1.1rem); transition: background 120ms, color 120ms;
 }
 .seg-btn.on { background: var(--accent); color: #06121f; box-shadow: inset 0 -3px 0 rgba(0,0,0,.22); }
@@ -308,6 +326,15 @@ html, body {
 .btn:disabled { filter: grayscale(.6) brightness(.7); cursor: default; }
 .btn:disabled:active { transform: none; }
 .modal.pause .card, .modal.settings .card { gap: 8px; }
+/* Pause on a short phone: RESTART and EXIT share a row (two-line labels allowed), the view note goes. */
+.card .actions .row.leave .btn { white-space: normal; line-height: 1.1; padding: 0 .7rem; font-size: clamp(.85rem, 3.6vw, 1.15rem); }
+@media (max-height: 720px) {
+  .modal.pause .setting-note { display: none; }
+  .modal.pause .card, .modal.settings .card { gap: 6px; padding-top: 14px; padding-bottom: 14px; }
+  .view-settings { gap: 4px; }
+  .view-settings .setting { row-gap: 2px; }
+  .card .actions { gap: 8px; margin-top: 2px; }
+}
 
 /* The menu's settings button: gear + the view drawing now. */
 .menu .top { display: flex; gap: 10px; }
@@ -337,3 +364,53 @@ html, body {
 .suggest .text { font-size: clamp(.85rem, 3.6vw, 1.05rem); line-height: 1.35; text-align: center; color: var(--text); }
 .suggest .row { display: flex; gap: 10px; justify-content: center; }
 .suggest .btn.sm { flex: 1; height: 48px; font-size: clamp(.85rem, 3.6vw, 1.05rem); }
+
+/* ------------------------------------------------ first-session guide */
+/* Takes no input except SKIP: the board underneath plays as without it. */
+/* No z-index: appended after the HUD it sits above; modals opened later (pause, guide) cover and block it. */
+.tutorial { position: absolute; inset: 0; pointer-events: none; }
+.tutorial[hidden] { display: none; }
+.tutorial .tut-card {
+  position: absolute; left: 50%; transform: translateX(-50%); width: min(94vw, 560px);
+  background: rgba(11,16,23,.96); border: 2px solid var(--gold); border-radius: 16px; padding: 8px 8px 8px 14px;
+  display: flex; align-items: center; gap: 10px; text-align: left; box-shadow: 0 6px 0 rgba(0,0,0,.45);
+  transition: opacity 160ms;
+}
+/* 'place' / 'move': over the meter band (the player is not reading it yet; the card steps aside while
+   a package is in hand). 'preview' points at the meter, so its card sits just below it. */
+.tutorial .tut-card { top: calc(112px + var(--safe-top) + 1.2vh); }
+.tutorial[data-step="preview"] .tut-card { top: calc(206px + var(--safe-top) + 2vh); }
+.tutorial .tut-text { flex: 1; font-size: clamp(.82rem, 3.5vw, 1.05rem); line-height: 1.3; white-space: pre-line; }
+.tutorial .btn.tut-skip { flex: 0 0 auto; pointer-events: auto; min-height: 48px; height: 48px; min-width: 0; width: auto;
+  font-size: clamp(.78rem, 3.2vw, .95rem); padding: 0 .8rem; white-space: normal; line-height: 1.05; max-width: 34%; }
+.tutorial.aside .tut-card, .tutorial.holding:not([data-step="preview"]) .tut-card { visibility: hidden; opacity: 0; }
+.tutorial.read:not([data-step="preview"]) .tut-card { display: none; }
+.tutorial .tut-hand { position: absolute; left: 0; top: 0; width: 52px; height: 52px; filter: drop-shadow(0 4px 3px rgba(0,0,0,.55)); }
+.tutorial .tut-hand svg { width: 100%; height: 100%; }
+.tutorial.holding .tut-hand, .tutorial.holding .tut-ring { opacity: 0; }
+.tutorial .tut-ring { position: absolute; left: 0; top: 0; width: 64px; height: 64px; margin: -32px 0 0 -32px; border-radius: 50%;
+  border: 4px dashed var(--gold); box-shadow: 0 0 0 3px rgba(11,16,23,.6); }
+.tutorial .tut-arrow { position: absolute; left: 0; top: 0; width: 0; height: 0; margin-left: -13px;
+  border-left: 13px solid transparent; border-right: 13px solid transparent; border-bottom: 20px solid var(--gold);
+  filter: drop-shadow(0 2px 0 rgba(0,0,0,.6)); }
+.tip.cargo-first { border-color: var(--gold); }
+
+/* ------------------------------------------------------- reduced motion */
+/*
+ * <html class="reduced-motion"> (the REDUCED MOTION setting, or the system
+ * preference when it is SYSTEM): no pulsing, popping, sliding or flashing.
+ * Animations and transitions finish at once; the few whose end state is not
+ * their resting look are pinned explicitly. Hazard information stays as the
+ * banner's icon, text and countdown bar.
+ */
+html.reduced-motion *, html.reduced-motion *::before, html.reduced-motion *::after {
+  animation-duration: 1ms !important; animation-iteration-count: 1 !important;
+  transition-duration: 1ms !important; transition-delay: 0ms !important;
+}
+html.reduced-motion #danger.on { animation: none !important; opacity: .55; }
+html.reduced-motion #flash.go { animation: none !important; opacity: 0; }
+html.reduced-motion .toast { animation: none !important; }
+html.reduced-motion .meter .delta.danger { animation: none !important; text-decoration: underline; }
+html.reduced-motion .menu .wordmark { animation: none !important; }
+html.reduced-motion .hud .subtitle.pop { transform: none; }
+html.reduced-motion .view-settings.busy .seg { animation: none !important; border-color: var(--accent); }

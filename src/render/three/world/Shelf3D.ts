@@ -8,9 +8,23 @@ import { TIER_LEVERAGE_STEP, W3 } from '../../../game/config';
 import { tierLeverage } from '../../../game/levels/types';
 import type { ShelfDef } from '../../../game/levels/types';
 import { MAT, drawShelfLabel, priorityTagTexture, sealedTexture } from '../Materials';
+import { t } from '../../../i18n';
 import { cargoCentreY, shelfSurfaceY, slotCentreX, slotFromX } from '../../layout';
 import { Easing } from '../../Tween';
 import type { Tweens } from '../../Tween';
+
+/**
+ * The instrument label plane under the plank (world units). Like the 2D view
+ * (rack2d LABEL_H / LABEL_CROP) it shows only the middle band of the shared
+ * label art, so the leverage pill and load text read at >= 12 CSS px on a
+ * 360 x 640 phone instead of ~6 px.
+ */
+const LABEL_H = 0.42;
+const LABEL_CROP = [0.2, 0.8] as const;
+/** World height the whole label canvas maps to. */
+const LABEL_ART_H = LABEL_H / (LABEL_CROP[1] - LABEL_CROP[0]);
+/** Label bake resolution: canvas px per label-art unit (about 220 px per world unit). */
+const LABEL_PX = 512;
 
 export class Shelf3D {
   readonly tier: number;
@@ -26,6 +40,10 @@ export class Shelf3D {
   private glow: THREE.Mesh;
   private glowMat: THREE.MeshBasicMaterial;
   private glowStop?: () => void;
+  /** Gold outline around the plank: a loss reason pointing at this shelf. */
+  private spot: THREE.Mesh;
+  private spotMat: THREE.MeshBasicMaterial;
+  private spotStop?: () => void;
   private load = 0;
 
   constructor(
@@ -66,21 +84,24 @@ export class Shelf3D {
     }
     this.group.add(this.plank);
 
-    // Instrument label under the lip.
-    this.labelCanvas = drawShelfLabel(null, this.width, {
+    // Instrument label under the lip: the shared art is drawn 0.3 units tall
+    // per unit of width; here its full height spans LABEL_ART_H, so the width
+    // passed in is scaled to keep the art's proportions.
+    this.labelCanvas = drawShelfLabel(null, this.labelArtWidth, {
       leverage: this.leverage,
       tier,
       load: 0,
       max: def.maxWeight,
-    });
+    }, LABEL_PX);
     this.labelTex = new THREE.CanvasTexture(this.labelCanvas);
     this.labelTex.colorSpace = THREE.SRGBColorSpace;
-    // The label canvas is drawn at (width x 0.3) units, so the plane matches.
+    this.labelTex.repeat.set(1, LABEL_CROP[1] - LABEL_CROP[0]);
+    this.labelTex.offset.set(0, LABEL_CROP[0]);
     const label = new THREE.Mesh(
-      new THREE.PlaneGeometry(this.width, 0.3),
+      new THREE.PlaneGeometry(this.width, LABEL_H),
       new THREE.MeshBasicMaterial({ map: this.labelTex, transparent: true, depthWrite: false }),
     );
-    label.position.set(0, y - W3.plankH - 0.17, W3.plankD / 2 + 0.01);
+    label.position.set(0, y - W3.plankH - 0.01 - LABEL_H / 2, W3.plankD / 2 + 0.01);
     label.renderOrder = 5;
     this.group.add(label);
 
@@ -91,10 +112,28 @@ export class Shelf3D {
     this.glow.renderOrder = 4;
     this.group.add(this.glow);
 
+    this.spotMat = new THREE.MeshBasicMaterial({
+      color: 0xffc93c,
+      side: THREE.BackSide,
+      transparent: true,
+      opacity: 0.95,
+      depthWrite: false,
+    });
+    this.spot = new THREE.Mesh(new THREE.BoxGeometry(this.width + 0.2, W3.plankH + 0.2, W3.plankD + 0.12), this.spotMat);
+    this.spot.position.set(0, y - W3.plankH / 2, 0);
+    this.spot.renderOrder = 8;
+    this.spot.visible = false;
+    this.group.add(this.spot);
+
     if (def.locked) this.buildSealed();
     else if (def.zone) this.buildZone();
 
     parent.add(this.group);
+  }
+
+  /** Width in "label art units" (see LABEL_ART_H). */
+  private get labelArtWidth(): number {
+    return (this.width * 0.3) / LABEL_ART_H;
   }
 
   // --- geometry (the shared hit-test in render/layout.ts) ---------------------
@@ -126,7 +165,7 @@ export class Shelf3D {
 
     const plaque = new THREE.Mesh(
       new THREE.PlaneGeometry(this.width, W3.cargoH),
-      new THREE.MeshBasicMaterial({ map: sealedTexture(this.width), transparent: true }),
+      new THREE.MeshBasicMaterial({ map: sealedTexture(this.width, t('shelf.sealed')), transparent: true }),
     );
     plaque.position.set(0, y + W3.cargoH / 2, W3.cargoD / 2 + 0.005);
     plaque.renderOrder = 4;
@@ -153,7 +192,7 @@ export class Shelf3D {
 
     const tag = new THREE.Mesh(
       new THREE.PlaneGeometry(1.6, 0.26),
-      new THREE.MeshBasicMaterial({ map: priorityTagTexture(), transparent: true, depthWrite: false }),
+      new THREE.MeshBasicMaterial({ map: priorityTagTexture(t('shelf.priorityTag')), transparent: true, depthWrite: false }),
     );
     tag.position.set(cx, y + 0.2, W3.cargoD * 0.48 + 0.02);
     tag.renderOrder = 6;
@@ -165,24 +204,23 @@ export class Shelf3D {
   setLoad(weight: number) {
     if (weight === this.load) return;
     this.load = weight;
-    drawShelfLabel(this.labelCanvas, this.width, {
+    drawShelfLabel(this.labelCanvas, this.labelArtWidth, {
       leverage: this.leverage,
       tier: this.tier,
       load: weight,
       max: this.def.maxWeight,
-    });
+    }, LABEL_PX);
     this.labelTex.needsUpdate = true;
   }
 
-  setOverloaded(on: boolean) {
+  /** Red glow behind the plank; `still` (reduced motion) holds it steady instead of pulsing. */
+  setOverloaded(on: boolean, still = false) {
     if (on === !!this.glowStop) return;
     if (on) {
-      const stop = this.tweens.add(this.glowMat, { opacity: 0.55 }, {
-        ms: 300,
-        yoyo: true,
-        repeat: -1,
-        ease: Easing.sineInOut,
-      });
+      const stop = still
+        ? () => undefined
+        : this.tweens.add(this.glowMat, { opacity: 0.55 }, { ms: 300, yoyo: true, repeat: -1, ease: Easing.sineInOut });
+      if (still) this.glowMat.opacity = 0.45;
       this.glowStop = () => {
         stop();
         this.glowMat.opacity = 0;
@@ -190,6 +228,18 @@ export class Shelf3D {
     } else {
       this.glowStop?.();
       this.glowStop = undefined;
+    }
+  }
+
+  /** Gold outline around the plank (pulsing unless `still`): the shelf a message points at. */
+  setSpotlit(on: boolean, still = false) {
+    this.spotStop?.();
+    this.spotStop = undefined;
+    this.spot.visible = on;
+    if (!on) return;
+    this.spotMat.opacity = still ? 0.95 : 0.5;
+    if (!still) {
+      this.spotStop = this.tweens.add(this.spotMat, { opacity: 1 }, { ms: 500, yoyo: true, repeat: -1, ease: Easing.sineInOut });
     }
   }
 
@@ -210,6 +260,7 @@ export class Shelf3D {
   /** Stops its tweens and frees the label texture; the rack frees the meshes. */
   dispose() {
     this.glowStop?.();
+    this.spotStop?.();
     this.tweens.kill(this.plank.position);
     this.labelTex.dispose();
   }

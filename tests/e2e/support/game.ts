@@ -21,8 +21,14 @@ export async function openWithSave(
   baseURL: string | undefined,
   save: string | null,
   init?: () => void,
+  opts: { viewport?: { width: number; height: number }; locale?: string } = {},
 ): Promise<{ context: BrowserContext; page: Page; errors: string[] }> {
-  const context = await browser.newContext({ ...devices['Pixel 7'], baseURL });
+  const context = await browser.newContext({
+    ...devices['Pixel 7'],
+    baseURL,
+    ...(opts.viewport ? { viewport: opts.viewport } : {}),
+    ...(opts.locale ? { locale: opts.locale } : {}),
+  });
   await context.addInitScript(
     ([key, raw]) => {
       if (sessionStorage.getItem('seeded')) return;
@@ -158,6 +164,51 @@ export class Hand {
     await this.aim(to);
     await this.release();
   }
+}
+
+// --- tap-select ---------------------------------------------------------------------
+
+export const selection = (page: Page) => page.evaluate(() => window.__cargoPanic!.selection());
+export const aimed = (page: Page) => page.evaluate(() => window.__cargoPanic!.aimed());
+
+/** A still mouse press and release (a tap) at a point. */
+export async function tapAt(page: Page, p: { x: number; y: number }) {
+  await page.mouse.move(p.x, p.y);
+  await page.mouse.down();
+  await page.mouse.up();
+}
+
+/** Taps a package until the game reports it selected (it may still be sliding along the belt). */
+export async function selectCargo(page: Page, cargo: number) {
+  await expect
+    .poll(
+      async () => {
+        if ((await selection(page)) === cargo) return true;
+        await tapAt(page, await pointOf(page, { cargo }));
+        return (await selection(page)) === cargo;
+      },
+      { timeout: 60_000, intervals: [100, 200, 300, 500] },
+    )
+    .toBe(true);
+}
+
+/**
+ * With a package selected: finger down on a slot, wait until the game shows
+ * that slot as the target (ghost + meter preview), optionally look at it,
+ * then lift the finger there.
+ */
+export async function tapTarget(
+  page: Page,
+  t: { shelf: number; slot: number; slots: number },
+  whileDown?: () => Promise<void>,
+) {
+  const want = { kind: 'slot', shelf: t.shelf, slot: t.slot };
+  const p = await pointOf(page, t);
+  await page.mouse.move(p.x, p.y);
+  await page.mouse.down();
+  await expect.poll(() => aimed(page), { timeout: 60_000 }).toEqual(want);
+  if (whileDown) await whileDown();
+  await page.mouse.up();
 }
 
 // --- navigation -----------------------------------------------------------------

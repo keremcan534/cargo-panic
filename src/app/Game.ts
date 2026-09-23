@@ -35,10 +35,11 @@ import { audio } from '../game/systems/AudioManager';
 import { evaluate } from '../game/systems/BalanceSystem';
 import { haptics } from '../game/systems/Haptics';
 import { requestHint } from '../game/systems/HintService';
+import { hintFor } from '../game/systems/Solver';
 import { progress } from '../game/systems/ProgressManager';
 import { formatScore, newRun } from '../game/systems/RunManager';
 import type { RunState } from '../game/systems/RunManager';
-import { t } from '../i18n';
+import { fmt, levelText, t } from '../i18n';
 import { InteractionController } from '../input/InteractionController';
 import type { BoardView, ClientPoint, DropTarget, GameView, RenderMode } from '../render/GameView';
 import type { Stage } from '../render/Stage';
@@ -57,8 +58,14 @@ import {
   WinPanel,
 } from '../ui/Panels';
 import type { FailReason } from '../ui/Panels';
+import { Tutorial } from '../ui/Tutorial';
+import { TutorialFlow } from '../ui/tutorialFlow';
+import type { TutorialStore } from '../ui/tutorialFlow';
 import { viewControls } from '../ui/ViewSettings';
 import { btn, el, fadeIn, fadeOut, iconBtn, uiRoot } from '../ui/dom';
+
+/** One free undo per shipment (campaign level or Endless wave); a new wave is a new session. */
+const UNDO_PER_SHIPMENT = 1;
 
 export interface GameData {
   levelId?: number;
@@ -78,6 +85,8 @@ export interface GameTestHook {
   board(): BoardView;
   /** The drop target currently shown for the package in hand (what a release would commit), or null. */
   aimed(): DropTarget | null;
+  /** The tap-selected package, or null. */
+  selection(): number | null;
   clientPointOf(target: Parameters<GameView['clientPointOf']>[0]): ClientPoint | null;
 }
 
@@ -99,15 +108,47 @@ function testHookEnabled(): boolean {
 function blockText(r: BlockReason): string {
   switch (r.key) {
     case 'overloaded':
-      return 'A SHELF IS OVER ITS LOAD LIMIT';
+      return t('block.overloaded');
     case 'crushed':
-      return 'FRAGILE CARGO IS BEING CRUSHED';
+      return t('block.crushed');
     case 'priority':
-      return 'PRIORITY CARGO MUST SIT IN THE GOLD ZONE';
+      return t('block.priority');
     case 'imbalance':
-      return `IMBALANCE MUST DROP BELOW ${r.limit.toFixed(1)}`;
+      return t('block.imbalance', { limit: fmt(r.limit) });
   }
 }
+
+/** The tutorial flags in the save. */
+const tutorialStore: TutorialStore = {
+  get done() {
+    return progress.tutorial.done;
+  },
+  get skipped() {
+    return progress.tutorial.skipped;
+  },
+  mark: (step) => progress.markTutorial(step),
+  skip: () => progress.setTutorialSkipped(true),
+};
+
+/** Cargo types explained once, the first time one is the live belt package. */
+const EXPLAINED = ['heavy', 'fragile', 'long', 'priority'] as const;
+type ExplainedType = (typeof EXPLAINED)[number];
+const isExplained = (type: string): type is ExplainedType => (EXPLAINED as readonly string[]).includes(type);
+
+/**
+ * A shelf as a loss message names it: the bottom one, the top one (on a rack
+ * with more than one), otherwise by number from the bottom. `on` is the form
+ * used after "on" in the fragile message.
+ */
+function shelfName(tier: number, tiers: number, form: 'start' | 'on' = 'start'): string {
+  if (tier === 0) return form === 'on' ? t('shelf.bottomOn') : t('shelf.bottom');
+  if (tier === tiers - 1) return form === 'on' ? t('shelf.topOn') : t('shelf.top');
+  return form === 'on' ? t('shelf.nOn', { n: tier + 1 }) : t('shelf.n', { n: tier + 1 });
+}
+
+/** Endless waves that open with a note about what is new. */
+const WAVE_NOTES = [1, 2, 4, 6, 9, 12] as const;
+type WaveNoteKey = `wave.intro.${(typeof WAVE_NOTES)[number]}`;
 
 export function gameScreen(ctx: AppContext, data: GameData): Screen {
   return new GameController(ctx, data);
@@ -128,6 +169,10 @@ class GameController implements Screen {
   private hud!: Hud;
   private meter!: Meter;
   private controls!: HTMLElement;
+  private controlsText!: HTMLElement;
+  private undoBtn!: HTMLButtonElement;
+  private hintBtn!: HTMLButtonElement;
+  private helpBtn!: HTMLButtonElement;
   private beltZone!: HTMLElement;
   private dangerEl!: HTMLElement;
 
@@ -135,6 +180,11 @@ class GameController implements Screen {
   private beepAccum = 0;
   private beepStep = 0;
   private tip?: TipCard;
+  /** First-encounter cargo explainer; unlike the level tip it stays up while the player grabs. */
+  private cargoTip?: TipCard;
+  private tutorial: Tutorial | null = null;
+  /** Level 1 guide: where the demonstration hand takes the live package. */
+  private placeTarget: { shelf: number; slot: number; slots: number } | null = null;
   private waveCard?: WaveClearCard;
   private suggestion?: SuggestCard;
   private pausePanel: PausePanel | null = null;
@@ -161,11 +211,15 @@ class GameController implements Screen {
       this.session = new GameSession(this.level, {
         source: waveSource(this.run),
         graceScale: this.graceScale,
+        undoAllowance: UNDO_PER_SHIPMENT,
       });
     } else {
       this.level = getLevel(data.levelId ?? 1);
       this.graceScale = 1;
-      this.session = new GameSession(this.level, { source: { mode: 'campaign', levelId: this.level.id } });
+      this.session = new GameSession(this.level, {
+        source: { mode: 'campaign', levelId: this.level.id },
+        undoAllowance: UNDO_PER_SHIPMENT,
+      });
     }
     this.pauses = new PauseReasons(this.session);
   }
@@ -181,42 +235,49 @@ class GameController implements Screen {
     this.hud = new Hud(
       this.run
         ? {
-            title: `WAVE ${this.run.wave}`,
+            title: t('hud.wave', { n: this.run.wave }),
             subtitle: formatScore(this.run.score),
             subtitleGold: true,
-            objective: this.level.objective,
+            objective: this.objective(),
             showRestart: false,
           }
         : {
-            title: `LEVEL ${this.level.id}`,
-            subtitle: this.level.name,
-            objective: this.level.objective,
+            title: t('hud.level', { n: this.level.id }),
+            subtitle: levelText(this.level.id, 'name', this.level.name),
+            objective: this.objective(),
             showRestart: true,
           },
       { onRestart: () => this.restartLevel(), onPause: () => this.openPause() },
     );
 
-    const hint = btn('HINT', () => this.onHint(), 'gold', 'sm');
+    const hint = btn(t('hud.hint'), () => this.onHint(), 'gold', 'sm');
     hint.dataset.role = 'hint';
-    this.controls = el('div', { class: 'controls' }, [
-      iconBtn('help', () => this.openLegend(), 'Cargo guide'),
-      el('div', { class: 'hint-text', text: 'Drag cargo onto a shelf.\nTap a stowed box to move it.' }),
-      hint,
-    ]);
-    this.controls.querySelector('.hint-text')!.setAttribute('style', 'white-space: pre-line');
-    this.beltZone = el('div', { class: 'belt-zone' }, [el('span', { text: 'BACK ON THE BELT' })]);
+    this.hintBtn = hint;
+    // Stays clickable when unavailable (aria-disabled, not disabled) so a press can say why.
+    this.undoBtn = btn(t('hud.undo'), () => this.onUndo(), 'secondary', 'sm', 'undo');
+    this.undoBtn.dataset.role = 'undo';
+    this.controlsText = el('div', { class: 'hint-text', text: t('hud.controlsHintTap') });
+    this.controlsText.dataset.role = 'controls-text';
+    const help = iconBtn('help', () => this.openLegend(), t('hud.guide'));
+    help.classList.add('help');
+    this.helpBtn = help;
+    this.controls = el('div', { class: 'controls' }, [help, this.controlsText, this.undoBtn, hint]);
+    this.beltZone = el('div', { class: 'belt-zone' }, [el('span', { text: t('hud.beltZone') })]);
     this.dangerEl = el('div', { id: 'danger' });
     uiRoot().append(this.dangerEl, this.beltZone, this.controls);
 
     this.refreshUi();
 
+    this.startTutorial();
     if (this.run) {
       this.tip = new TipCard(this.waveIntro());
       const run = this.run;
       this.after(120, () => prefetchWave(run.seed, run.wave + 1));
-    } else if (this.level.tip) {
-      this.tip = new TipCard(this.level.tip);
+    } else if (this.level.tip && !this.tutorial?.step) {
+      // (A guide step on screen from the start says the same thing, with a pointer.)
+      this.tip = new TipCard(levelText(this.level.id, 'tip', this.level.tip));
     }
+    this.explainNewCargo();
 
     // The stable root under the canvas: a view switch replaces the canvas, not this.
     this.surface = document.getElementById('game-root') as HTMLElement;
@@ -235,14 +296,18 @@ class GameController implements Screen {
         preview: (net) => (net === null ? this.meter.hidePreview() : this.meter.showPreview(net)),
         beltHover: (on) => this.beltZone.classList.toggle('on', on),
         rejected: (reason) => {
-          this.hud.toast(reason);
+          this.hud.toast(t(`reject.${reason}` as const));
           audio.invalid();
           haptics.reject();
         },
-        placed: () => this.refresh(),
+        placed: (_id, _quiet, from) => {
+          this.refresh();
+          this.tutorial?.moved(from.at === 'shelf', this.session.placements.length);
+        },
+        selected: (id) => this.showControlsText(id !== null),
         landed: (id) => this.landingFeedback(id),
         toBelt: () => {
-          this.hud.toast('BACK ON THE BELT', 'info');
+          this.hud.toast(t('toast.backOnBelt'), 'info');
           this.refresh();
         },
       },
@@ -262,6 +327,8 @@ class GameController implements Screen {
     this.offAdvanceTap?.();
     for (const t of this.timers) clearTimeout(t);
     this.tip?.dismiss();
+    this.cargoTip?.dismiss();
+    this.tutorial?.dispose();
     this.waveCard?.dismiss();
     this.suggestion?.dismiss();
     if (this.viewLive) this.view.dispose();
@@ -281,7 +348,7 @@ class GameController implements Screen {
   /** Steps 1-2: cancel any drag (nothing changes in the session), hold the session, drop the view. */
   detachStage() {
     if (!this.viewLive) return;
-    this.interaction.cancel();
+    this.interaction.reset();
     this.pauses.add('switching');
     this.view.dispose();
     this.viewLive = false;
@@ -304,6 +371,33 @@ class GameController implements Screen {
   stageLost() {
     this.interaction.cancel();
     this.pauses.add('context-lost');
+  }
+
+  /**
+   * The language changed (from the pause panel): the HUD, meter and controls
+   * switch now; the pause panel is rebuilt in place, still paused. The
+   * shelf plaques in the view pick it up on the next level.
+   */
+  languageChanged() {
+    const run = this.run;
+    this.hud.setTitle(run ? t('hud.wave', { n: run.wave }) : t('hud.level', { n: this.level.id }));
+    if (!run) this.hud.setSubtitle(levelText(this.level.id, 'name', this.level.name));
+    this.hud.relabel();
+    this.meter.relabel();
+    this.refreshUi();
+    this.showControlsText(this.interaction.selection !== null);
+    this.undoBtn.textContent = t('hud.undo');
+    this.hintBtn.textContent = t('hud.hint');
+    this.helpBtn.title = t('hud.guide');
+    this.helpBtn.setAttribute('aria-label', t('hud.guide'));
+    const belt = this.beltZone.querySelector('span');
+    if (belt) belt.textContent = t('hud.beltZone');
+    this.tutorial?.relabel();
+    if (this.pausePanel) {
+      this.pausePanel.dismissNow();
+      this.pausePanel = null;
+      this.openPause();
+    }
   }
 
   stageRestored() {
@@ -364,6 +458,7 @@ class GameController implements Screen {
       snapshot: () => this.session.snapshot(),
       board: () => this.boardView(),
       aimed: () => this.interaction.aimed,
+      selection: () => this.interaction.selection,
       clientPointOf: (target) => (this.viewLive ? this.view.clientPointOf(target) : null),
     };
     this.testHook = Object.freeze(hook);
@@ -387,19 +482,88 @@ class GameController implements Screen {
     };
   }
 
+  /** The line next to the buttons: how to play, or what to do with the selected package. */
+  private showControlsText(selected: boolean) {
+    this.controlsText.textContent = selected ? t('hud.selected') : t('hud.controlsHintTap');
+    this.controlsText.classList.toggle('selected', selected);
+  }
+
   /** After every committed command: redraw the board, then the HUD and meter. */
   private refresh() {
     if (this.viewLive) this.view.sync(this.boardView());
     this.refreshUi();
+    this.explainNewCargo();
+  }
+
+  // ==========================================================================
+  // First-session guide and first-encounter cargo
+  // ==========================================================================
+
+  /** Levels 1-3 teach one thing each (see tutorialFlow.ts) unless already done or skipped. */
+  private startTutorial() {
+    if (this.run) return;
+    const flow = new TutorialFlow(this.level.id, tutorialStore);
+    if (!flow.active) return;
+    this.tutorial = new Tutorial(flow);
+    const cur = this.session.current;
+    if (flow.step === 'place' && cur !== null) {
+      // The solver directly: session.hint() would count as an assist.
+      const h = hintFor(this.level, this.session.placements, [...this.session.queue], cur);
+      if (h.kind !== 'stuck') {
+        this.placeTarget = { shelf: h.shelf, slot: h.slot, slots: PACKAGE_SPECS[this.level.packages[cur]].slots };
+      }
+    }
+  }
+
+  private updateTutorial(dtMs: number) {
+    const tut = this.tutorial;
+    if (!tut) return;
+    const s = this.session;
+    tut.update({
+      dtMs,
+      holding: this.interaction.holding !== null,
+      hazard: s.hazard.kind !== null,
+      reducedMotion: document.documentElement.classList.contains('reduced-motion'),
+      pointOf: this.viewLive ? (target) => this.view.clientPointOf(target) : null,
+      live: s.current,
+      placeTarget: this.placeTarget,
+      stowed: s.placements[0]?.id ?? null,
+      ghostNeedle: () => this.meter.ghostAnchor(),
+    });
+    // The guide's card and the level tip share a spot; the guide wins.
+    if (tut.step) this.tip?.dismiss();
+    if (!tut.alive) this.tutorial = null;
+  }
+
+  /**
+   * The first time a heavy, fragile, long or priority package is the live
+   * belt package - in any mode and level - one short explainer, once ever.
+   */
+  private explainNewCargo() {
+    const cur = this.session.current;
+    if (cur === null || this.session.phase === 'won' || this.session.phase === 'failed') return;
+    const type = this.level.packages[cur];
+    if (!isExplained(type) || progress.tutorial.seenCargo.includes(type)) return;
+    progress.markCargoSeen(type);
+    this.tip?.dismiss();
+    this.cargoTip?.dismiss();
+    this.cargoTip = new TipCard(t(`cargo.${type}.first`), 6500, 'cargo-first');
   }
 
   private refreshUi() {
+    this.refreshUndo();
     const s = this.session;
     const ev = s.evaluation;
     this.meter.setValue(ev.net, ev.leftTorque, ev.rightTorque, ev.status);
     this.hud.setRemaining(s.remaining, this.level.packages.length);
     const blocker = s.blockReason();
-    this.hud.setObjective(blocker ? blockText(blocker) : this.level.objective);
+    this.hud.setObjective(blocker ? blockText(blocker) : this.objective());
+  }
+
+  /** The shipment's objective line: the campaign level's own, or the Endless wave's. */
+  private objective(): string {
+    if (this.run) return t('wave.objective', { n: this.level.packages.length, limit: fmt(this.level.balanceTolerance) });
+    return levelText(this.level.id, 'objective', this.level.objective);
   }
 
   /** Touchdown sound and buzz for a committed placement, by cargo type. */
@@ -427,6 +591,7 @@ class GameController implements Screen {
       this.interaction.update();
     }
     this.meter.tick(animMs);
+    this.updateTutorial(animMs);
     if (this.session.phase !== 'play') return;
 
     const r = this.session.advance(realMs);
@@ -438,6 +603,7 @@ class GameController implements Screen {
     const hazard = r.hazard;
     if (hazard.kind) {
       this.tip?.dismiss();
+      this.cargoTip?.dismiss();
       this.hud.showHazard(hazard.kind, hazard.remaining, hazard.total);
       this.dangerEl.classList.add('on');
       this.runHazardAudio(dt, hazard.urgency);
@@ -467,6 +633,10 @@ class GameController implements Screen {
   private onOutcome(o: ShipmentOutcome) {
     // Whatever is in hand stays where the rules had it; its pointerup is ignored.
     this.interaction.abort();
+    this.tutorial?.end();
+    this.tutorial = null;
+    this.cargoTip?.dismiss();
+    this.refreshUndo();
     this.beltZone.classList.remove('on');
     this.meter.hidePreview();
     if (o.result === 'won') {
@@ -483,10 +653,11 @@ class GameController implements Screen {
 
   private onHint() {
     if (this.session.phase !== 'play') return;
-    // A second finger on HINT mid-drag: the package goes back first (the session refuses hints while one is held).
-    this.interaction.cancel();
+    // A second finger on HINT mid-drag: the package goes back first, and a
+    // selection is let go (the session refuses hints while one is held).
+    this.interaction.reset();
     if (this.session.queue.length === 0) {
-      this.hud.toast('EVERYTHING IS STOWED - FIX THE BALANCE', 'info');
+      this.hud.toast(t('toast.allStowed'), 'info');
       return;
     }
     requestHint(() => this.applyHint());
@@ -497,16 +668,52 @@ class GameController implements Screen {
     const hint = this.session.hint();
     if (current === null || !hint) return;
     if (hint.kind === 'stuck') {
-      this.hud.toast('NO SOLUTION FROM HERE - TAP RESTART', 'info');
+      this.hud.toast(t('toast.stuck'), 'info');
       return;
     }
     // The view clears it after HINT_MS or when a drag begins (GameView.showHint).
     if (this.viewLive) this.view.showHint(current, { shelf: hint.shelf, slot: hint.slot });
-    if (hint.kind === 'rearrange') this.hud.toast('SOME STOWED CARGO NEEDS MOVING TOO', 'info');
+    if (hint.kind === 'rearrange') this.hud.toast(t('toast.rearrange'), 'info');
   }
 
   private clearHint() {
     if (this.viewLive) this.view.clearHint();
+  }
+
+  // ==========================================================================
+  // Undo
+  // ==========================================================================
+
+  /**
+   * UNDO is shown available while the shipment is on, the free undo is
+   * unused and there is a committed move to take back. A package in hand or
+   * selected does not grey it out: pressing it puts that package back first.
+   */
+  private refreshUndo() {
+    const snap = this.session.snapshot();
+    const ready = snap.phase === 'play' && snap.undoLeft > 0 && snap.undo !== null;
+    this.undoBtn.classList.toggle('off', !ready);
+    this.undoBtn.setAttribute('aria-disabled', String(!ready));
+  }
+
+  private onUndo() {
+    const s = this.session;
+    if (s.phase !== 'play') return;
+    // A second finger on UNDO mid-drag: the package goes back and a selection is let go first.
+    this.interaction.reset();
+    if (s.undoLeft <= 0) {
+      this.hud.toast(t('toast.undoUsed'), 'info');
+    } else if (!s.undo()) {
+      this.hud.toast(t('toast.nothingToUndo'), 'info');
+    } else {
+      this.clearHint();
+      // sync() moves every package to its restored place with a short, quiet tween.
+      this.refresh();
+      this.hud.toast(t('toast.undone'), 'info');
+      audio.pickup();
+      haptics.tap();
+    }
+    this.refreshUndo();
   }
 
   // ==========================================================================
@@ -544,8 +751,8 @@ class GameController implements Screen {
           imbalance: o.imbalance,
           tolerance: o.limit,
           packages: this.level.packages.length,
-          mistakes: o.rejectedDrops,
-          hintUsed: o.assists.hints > 0,
+          hints: o.assists.hints,
+          undos: o.assists.undos,
           isLastLevel: id >= TOTAL_LEVELS,
           newBest: record.balanceImproved && previousBest !== null,
           firstClear: previousBest === null,
@@ -560,6 +767,13 @@ class GameController implements Screen {
     });
   }
 
+  /**
+   * The loss panel states what really happened, from the rules' failure
+   * facts: the imbalance against the limit and the lean, the shelf's load
+   * against its rating, or the heavy crate above the fragile one. The view
+   * points at the shelf or the packages involved, during the fall and behind
+   * the panel.
+   */
   private failLevel(o: ShipmentOutcome) {
     this.endHazardUi();
     const f = o.failure;
@@ -571,27 +785,41 @@ class GameController implements Screen {
       reason = 'collapse';
       const imbalance = f?.imbalance ?? o.imbalance;
       const tolerance = f?.tolerance ?? this.level.balanceTolerance;
-      detail = `Imbalance reached ${imbalance.toFixed(1)} against a limit of ${tolerance.toFixed(1)}.`;
+      const lean = f?.net ?? net;
+      detail = t('fail.detail.collapse', {
+        imbalance: fmt(imbalance),
+        limit: fmt(tolerance),
+        side: lean > 0 ? t('fail.side.right') : t('fail.side.left'),
+      });
       audio.collapse();
       haptics.crash();
       this.flash();
-      const dir = (f?.net ?? net) >= 0 ? 1 : -1;
+      const dir = lean >= 0 ? 1 : -1;
       this.showOutcome((v) => v.failCollapse(dir));
     } else if (f.kind === 'overload') {
       reason = 'overload';
-      detail = `Tier ${f.tier + 1} carried ${f.load} against a rating of ${f.max}.`;
+      detail = t('fail.detail.overload', { shelf: shelfName(f.tier, this.level.shelves.length), load: f.load, max: f.max });
       audio.collapse();
       haptics.crash();
       const tier = f.tier;
       const dir = net >= 0 ? 1 : -1;
-      this.showOutcome((v) => v.failOverload(tier, dir));
+      this.showOutcome((v) => {
+        v.failOverload(tier, dir);
+        v.highlight({ shelf: tier });
+      });
     } else {
       reason = 'fragile';
-      detail = 'A heavy crate was stacked in the column above the glass.';
+      const weight = Math.max(0, ...f.crusherIds.map((id) => PACKAGE_SPECS[this.level.packages[id]].weight));
+      const tier = o.placements.find((p) => p.id === f.fragileId)?.shelf ?? 0;
+      detail = t('fail.detail.fragile', { weight, shelf: shelfName(tier, this.level.shelves.length, 'on') });
       audio.shatter();
       haptics.crash();
       const id = f.fragileId;
-      this.showOutcome((v) => v.failFragile(id));
+      const crushers = [...f.crusherIds];
+      this.showOutcome((v) => {
+        v.failFragile(id);
+        v.highlight({ cargo: id, others: crushers });
+      });
     }
 
     audio.fail();
@@ -613,9 +841,14 @@ class GameController implements Screen {
             bestWave: stats.bestWave,
             newBest,
             reason,
+            detail,
+            // A run is assisted once any rewarded wave used help, or this last wave did.
+            assisted: run.assisted || o.assists.hints > 0 || o.assists.undos > 0,
           },
           {
-            onRetry: () => this.goto((c) => gameScreen(c, { run: newRun() })),
+            // Same seed and configuration, but a new run (new runId): wave 1 again.
+            onRetrySame: () => this.goto((c) => gameScreen(c, { run: newRun(run.seed) })),
+            onNewShift: () => this.goto((c) => gameScreen(c, { run: newRun() })),
             onMenu: () => this.goto(menuScreen),
           },
         );
@@ -667,20 +900,14 @@ class GameController implements Screen {
   private waveIntro(): string {
     const run = this.run;
     if (!run) return '';
-    const notes: Record<number, string> = {
-      1: 'Endless shift. Clear a shipment, the next one is harder.',
-      2: 'Heavy crates from here on.',
-      4: 'Fragile cargo joins the belt.',
-      6: 'Long packages joins the manifest.',
-      9: 'Priority cargo - gold zone only.',
-      12: 'Aisles can be sealed off from now on.',
-    };
-    const note = notes[run.wave];
+    const note = (WAVE_NOTES as readonly number[]).includes(run.wave) ? t(`wave.intro.${run.wave}` as WaveNoteKey) : null;
     const grace = (GRACE_MS.balance * this.graceScale) / 1000;
     const stats =
-      `${this.level.packages.length} packages - ${this.level.shelves.length} tiers - ` +
-      `red line ${this.level.balanceTolerance.toFixed(1)}` +
-      (this.graceScale < 0.99 ? ` - ${grace.toFixed(1)}s to fix a mistake` : '');
+      t('wave.stats', {
+        packages: this.level.packages.length,
+        tiers: this.level.shelves.length,
+        limit: fmt(this.level.balanceTolerance),
+      }) + (this.graceScale < 0.99 ? t('wave.statsGrace', { secs: fmt(grace) }) : '');
     return note ? `${note}\n${stats}` : stats;
   }
 
@@ -704,9 +931,9 @@ class GameController implements Screen {
     this.dispatched = true;
     // The rack is empty now: the readouts follow.
     this.meter.setValue(0, 0, 0, 'stable');
-    this.hud.setObjective(this.level.objective);
+    this.hud.setObjective(this.objective());
     this.hud.setRemaining(0, this.level.packages.length);
-    this.waveCard = new WaveClearCard(result);
+    this.waveCard = new WaveClearCard(result, run.wave);
 
     // A pending "try 2D?" choice holds the next wave until it is answered.
     const asked = this.offerTwoD(() => this.advanceWave());
@@ -775,8 +1002,8 @@ class GameController implements Screen {
         closed();
         this.pauses.remove('menu');
       },
-      restartLabel: this.run ? 'END RUN' : 'RESTART LEVEL',
-      exitLabel: this.run ? 'MAIN MENU' : 'LEVEL SELECT',
+      restartLabel: this.run ? t('pause.endRun') : t('pause.restartLevel'),
+      exitLabel: this.run ? t('pause.mainMenu') : t('pause.levelSelect'),
       onRestart: () => {
         closed();
         if (this.run) this.goto(menuScreen);

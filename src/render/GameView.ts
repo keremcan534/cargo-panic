@@ -62,7 +62,13 @@ export interface PointerSample {
 /** Where a drop or tap would go, in rules terms. */
 export type DropTarget = { kind: 'slot'; shelf: number; slot: number } | { kind: 'belt' };
 
-export type ViewHighlight = { shelf: number } | { cargo: number } | null;
+/**
+ * What a message points at: a shelf, or a package (plus, optionally, others
+ * that share the blame - e.g. the heavy crates above a crushed fragile one).
+ * The main target gets the marker; every listed package gets the outline.
+ * A package that is gone (shattered) keeps its outline where it was.
+ */
+export type ViewHighlight = { shelf: number } | { cargo: number; others?: readonly number[] } | null;
 
 export type ClientPoint = { x: number; y: number };
 
@@ -126,9 +132,13 @@ export interface GameView {
   /** Outline of every cell a package `slots` wide would occupy at a slot target. */
   showGhost(target: { shelf: number; slot: number }, slots: number, kind: TargetKind): void;
   hideGhost(): void;
-  /** Highlights the belt as a drop target (or not). */
+  /** Highlights the belt as the target being shown (it glows blue), or not. */
   setBeltHover(on: boolean): void;
-  /** Tap-to-select highlight on a package, or none. */
+  /**
+   * Tap-to-select look on a package, or none: it rises a little and gets a
+   * pulsing blue outline (steady under reduced motion), identically in 2D
+   * and 3D. Selecting changes nothing in the rules.
+   */
   setSelected(cargoId: number | null): void;
   /**
    * Gold pulse on the package plus an 'ok' ghost at the target. The view owns
@@ -138,7 +148,11 @@ export interface GameView {
   showHint(cargoId: number, target: { shelf: number; slot: number }): void;
   /** Removes the hint now (the ghost of an active drag stays). */
   clearHint(): void;
-  /** Points at the shelf or package a message refers to (loss reason, tutorial). */
+  /**
+   * Points at the shelf or package a message refers to (loss reason): a
+   * pulsing gold outline plus a marker above it, in both views. Survives the
+   * outcome calls (it is shown behind the loss panel); null removes it.
+   */
   highlight(h: ViewHighlight): void;
 
   // --- transitions, after the session has decided ----------------------------
