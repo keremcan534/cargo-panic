@@ -3,9 +3,8 @@
  * removes and frees exactly what it added.
  */
 
-import { HERO_CARGO, HERO_LEVEL } from '../hero';
+import { HERO_CARGO, HERO_LEVEL, heroSway } from '../hero';
 import type { Backdrop } from '../Stage';
-import { Easing } from '../Tween';
 import type { ThreeStage } from './ThreeStage';
 import { Warehouse } from './Warehouse';
 import { Cargo3D } from './world/Cargo3D';
@@ -31,13 +30,12 @@ export function menuBackdrop(stage: ThreeStage): Backdrop {
     rack.group.add(c.mesh);
     cargo.push(c);
   }
-  // Same sway as the 2D title: -0.02 <-> 0.02 rad over 3.2 s, eased; none under reduced motion
-  // (read every frame, so the setting applies at once).
+  // Same sway as the 2D title (hero.ts); none under reduced motion (read
+  // every frame, so the setting applies at once).
   let t = 0;
   const sway = (dt: number) => {
     t += dt;
-    const phase = (t / 3200) % 2;
-    rack.group.rotation.z = stage.reducedMotion ? 0 : -0.02 + 0.04 * Easing.sineInOut(phase < 1 ? phase : 2 - phase);
+    rack.group.rotation.z = stage.reducedMotion ? 0 : heroSway(t);
   };
   sway(0);
   const offTick = stage.onRender((dt) => {

@@ -14,8 +14,7 @@
 
 import { W3 } from '../../game/config';
 import type { PackageType } from '../../game/levels/types';
-import { HERO_CARGO, HERO_LEVEL } from '../hero';
-import { Easing } from '../Tween';
+import { HERO_CARGO, HERO_LEVEL, heroSway } from '../hero';
 import type { Backdrop } from '../Stage';
 import { rackHalfWidth, rackTopY } from '../layout';
 import { cargoCentreY, layout2d, slotCentreX } from './layout2d';
@@ -295,12 +294,8 @@ export class MenuBackdrop2D implements Backdrop, Layer2D {
     if (!this.bg || !rack) return;
     this.t += dtMs;
     ctx.drawImage(this.bg, 0, 0, this.host.width, this.host.height);
-    // Same sway as the 3D title: -0.02 <-> 0.02 rad over 3.2 s, eased.
-    let tilt = 0;
-    if (!this.host.reducedMotion) {
-      const phase = (this.t / 3200) % 2;
-      tilt = -0.02 + 0.04 * Easing.sineInOut(phase < 1 ? phase : 2 - phase);
-    }
+    // Same sway as the 3D title (hero.ts); none under reduced motion.
+    const tilt = this.host.reducedMotion ? 0 : heroSway(this.t);
     const s = rack.s;
     ctx.save();
     ctx.translate(this.originX, this.floorY);

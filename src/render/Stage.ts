@@ -21,6 +21,14 @@ import type { GameView, RenderMode } from './GameView';
 export type QualityPref = 'auto' | 'low' | 'high';
 export type BackdropKind = 'menu' | 'levels';
 
+/** A rectangle in CSS pixels from the top-left of the stage canvas (the UI root covers the same box). */
+export interface ScreenRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 /** A decorative scene behind a menu. Re-framed by the Stage on resize. */
 export interface Backdrop {
   dispose(): void;
