@@ -32,6 +32,10 @@ export interface Screen {
   stageRestored?(): void;
   /** The text language changed: re-render the screen's DOM in the new language. */
   languageChanged?(): void;
+  /** The app went to the background: let go of input, pause and save now (App.hide). */
+  hide?(): void;
+  /** Android back button (Escape in the game): handle it and return true, or false to let the app exit. */
+  back?(): boolean;
 }
 
 export interface AppContext {

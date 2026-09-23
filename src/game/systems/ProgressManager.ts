@@ -7,6 +7,11 @@
  * key is left untouched). Anything the player should know about - a recovered
  * or unreadable save, storage that cannot be written - is queued as a notice
  * for the UI (`takeSaveNotices` / `onSaveNotice`); nothing is reset silently.
+ *
+ * The resumable game (`active`) ends in the same write as the record that
+ * ends it: a campaign win (`recordWin`) and a finished Endless run
+ * (`recordRun`) both clear it, and an Endless wave's reward, the next wave
+ * and the new `active` are written together through `claim`.
  */
 
 import { TOTAL_LEVELS } from '../levels/levels';
@@ -24,14 +29,16 @@ import type {
 } from '../save/schema';
 import { RULESET_VERSION } from '../session/versions';
 import { browserStore } from '../../platform/storage';
+import type { KeyValueStore } from '../../platform/storage';
 
-export type { EndlessRecord as EndlessStats, SaveNotice };
+export type { EndlessRecord as EndlessStats, SaveNotice, SaveStatus };
 
-class Progress {
+export class Progress {
   private store: SaveStore;
 
-  constructor() {
-    this.store = new SaveStore(browserStore(), TOTAL_LEVELS);
+  /** The app uses the one instance below, on localStorage; tests pass their own store. */
+  constructor(storage: KeyValueStore | null = browserStore()) {
+    this.store = new SaveStore(storage, TOTAL_LEVELS);
     this.store.load();
   }
 
@@ -51,6 +58,11 @@ class Progress {
 
   onSaveNotice(fn: (n: SaveNotice) => void): () => void {
     return this.store.onNotice(fn);
+  }
+
+  /** Called when saving starts failing, or works again after a failure (`saveStatus.writeFailed`). */
+  onSaveStatus(fn: (s: SaveStatus) => void): () => void {
+    return this.store.onStatus(fn);
   }
 
   /** Write immediately (lifecycle boundaries: page hidden, app backgrounded). */
@@ -127,7 +139,10 @@ class Progress {
     return Object.values(this.d.campaign.stars).filter((s) => s > 0).length;
   }
 
-  /** Records a win and reports which personal records it beat. Stars never go down. */
+  /**
+   * Records a win and reports which personal records it beat. Stars never go
+   * down. The level's resumable game is over: it is cleared in the same write.
+   */
   recordWin(
     levelId: number,
     stars: number,
@@ -143,6 +158,7 @@ class Progress {
       }
       if (balanceImproved) d.campaign.bestBalance[levelId] = imbalance;
       if (levelId + 1 <= TOTAL_LEVELS && d.campaign.unlocked < levelId + 1) d.campaign.unlocked = levelId + 1;
+      d.active = null;
     });
     this.store.flush();
     return { starsImproved, balanceImproved };
@@ -166,7 +182,10 @@ class Progress {
     return best;
   }
 
-  /** Records a finished Endless run under the current ruleset. Returns true on a new high score. */
+  /**
+   * Records a finished Endless run under the current ruleset and clears the
+   * resumable run in the same write. Returns true on a new high score.
+   */
   recordRun(score: number, wave: number): boolean {
     const key = String(RULESET_VERSION);
     const improved = score > this.endless.bestScore;
@@ -176,6 +195,7 @@ class Progress {
       if (score > e.bestScore) e.bestScore = score;
       if (wave > e.bestWave) e.bestWave = wave;
       d.endless[key] = e;
+      d.active = null;
     });
     this.store.flush();
     return improved;
@@ -219,7 +239,11 @@ class Progress {
     this.store.update((d) => (d.active = copy));
   }
 
-  /** Grants a reward exactly once per id; the effect and the id are written together. */
+  /**
+   * Grants a reward exactly once per id; the effect and the id are written
+   * together (app/activePlay.ts bankWave: the reward, the next wave and the new
+   * `active` are one claim).
+   */
   claim(rewardId: string, apply: (d: SaveData) => void): boolean {
     return this.store.claim(rewardId, apply);
   }

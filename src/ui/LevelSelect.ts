@@ -3,7 +3,7 @@
  * dark until the previous level is cleared.
  */
 
-import type { AppContext, Screen } from '../app/Router';
+import type { AppContext, Screen, ScreenFactory } from '../app/Router';
 import { gameScreen } from '../app/Game';
 import { LEVELS, TOTAL_LEVELS } from '../game/levels/levels';
 import { audio } from '../game/systems/AudioManager';
@@ -11,15 +11,30 @@ import { haptics } from '../game/systems/Haptics';
 import { progress } from '../game/systems/ProgressManager';
 import { t } from '../i18n';
 import type { Backdrop, Stage } from '../render/Stage';
-import { menuScreen } from './Menu';
+import { confirmFreshStart, menuScreen } from './Menu';
+import type { ConfirmPanel } from './Panels';
 import { STAR_SVG, btn, el, fadeIn, fadeOut, iconBtn, uiRoot } from './dom';
 
 export function levelSelectScreen(ctx: AppContext): Screen {
   let root: HTMLElement;
   let backdrop: Backdrop | undefined;
+  let question: ConfirmPanel | null = null;
+  let leaving = false;
 
+  const leave = (factory: ScreenFactory) => {
+    if (leaving) return;
+    leaving = true;
+    void fadeOut(180).then(() => ctx.router.go(factory));
+  };
+
+  /** A level starts fresh and replaces the saved game (asking first if that ends a shift with points). */
   const start = (id: number) => {
-    void fadeOut(180).then(() => ctx.router.go((c) => gameScreen(c, { levelId: id })));
+    if (leaving || question) return;
+    const asked = confirmFreshStart(() => leave((c) => gameScreen(c, { levelId: id })));
+    question = asked;
+    asked?.onClosed(() => {
+      if (question === asked) question = null;
+    });
   };
 
   return {
@@ -68,7 +83,7 @@ export function levelSelectScreen(ctx: AppContext): Screen {
       root = el('div', { class: 'screen levels fade-in' }, [
         el('div', { class: 'dim-3d' }),
         el('div', { class: 'head' }, [
-          iconBtn('back', () => void fadeOut(180).then(() => ctx.router.go(menuScreen)), t('levels.back')),
+          iconBtn('back', () => leave(menuScreen), t('levels.back')),
           el('h1', { text: t('levels.title') }),
           el('div'),
           el('div', { class: 'stars', text: t('levels.stars', { stars: progress.totalStars(), total: TOTAL_LEVELS * 3 }) }),
@@ -80,9 +95,21 @@ export function levelSelectScreen(ctx: AppContext): Screen {
       fadeIn();
     },
     exit() {
+      question?.dismissNow();
+      question = null;
       backdrop?.dispose();
       backdrop = undefined;
       root.remove();
+    },
+    /** Android back: closes the question if one is open, else back to the title screen. */
+    back() {
+      if (question) {
+        question.cancel();
+        question = null;
+      } else {
+        leave(menuScreen);
+      }
+      return true;
     },
     languageChanged() {
       ctx.router.go(levelSelectScreen);

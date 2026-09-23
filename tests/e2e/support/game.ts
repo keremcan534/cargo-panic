@@ -15,13 +15,17 @@ import { SAVE_KEY } from './save';
 export type Target = { cargo: number } | { shelf: number; slot: number; slots: number } | { belt: true };
 export type Spot = { shelf: number; slot: number };
 
-/** A new phone-sized context (same device as the config) whose localStorage starts with `save`. */
+/**
+ * A new phone-sized context (same device as the config) whose localStorage
+ * starts with `save` (and `opts.storage`'s other keys) - once: a reload keeps
+ * what the game wrote.
+ */
 export async function openWithSave(
   browser: Browser,
   baseURL: string | undefined,
   save: string | null,
   init?: () => void,
-  opts: { viewport?: { width: number; height: number }; locale?: string } = {},
+  opts: { viewport?: { width: number; height: number }; locale?: string; storage?: Record<string, string> } = {},
 ): Promise<{ context: BrowserContext; page: Page; errors: string[] }> {
   const context = await browser.newContext({
     ...devices['Pixel 7'],
@@ -30,13 +34,14 @@ export async function openWithSave(
     ...(opts.locale ? { locale: opts.locale } : {}),
   });
   await context.addInitScript(
-    ([key, raw]) => {
+    ([key, raw, extra]) => {
       if (sessionStorage.getItem('seeded')) return;
       localStorage.clear();
       if (raw !== null) localStorage.setItem(key, raw);
+      for (const [k, v] of Object.entries(extra)) localStorage.setItem(k, v);
       sessionStorage.setItem('seeded', '1');
     },
-    [SAVE_KEY, save] as const,
+    [SAVE_KEY, save, opts.storage ?? {}] as const,
   );
   if (init) await context.addInitScript(init);
   const page = await context.newPage();

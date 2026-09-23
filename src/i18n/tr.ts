@@ -21,6 +21,12 @@ export const tr: Record<TextKey, string> = {
   'menu.endlessBestPrevious': 'ÖNCEKİ SÜRÜM: EN İYİ {score}  -  DALGA {wave}',
   'menu.endlessPitch': 'ÜRETİLEN DALGALAR - TEK HATA VARDİYAYI BİTİRİR',
   'menu.sound': 'Ses',
+  'menu.playLevel': 'BÖLÜM {n} OYNA',
+  'menu.newShiftTitle': 'VARDİYAN BİTSİN Mİ?',
+  'menu.newShiftBody':
+    'Vardiyan {wave}. dalgada, {score} puanla sürüyor. Yeni oyun başlatırsan vardiya biter ve puanı saklanmaz.',
+  'menu.newShiftConfirm': 'YENİ OYUN BAŞLAT',
+  'menu.newShiftCancel': 'VARDİYAMA DÖN',
 
   // --- level select -----------------------------------------------------------
   'levels.title': 'BÖLÜM SEÇ',

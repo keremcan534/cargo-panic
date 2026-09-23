@@ -2,8 +2,10 @@
  * Entry point. Reads the player's view preference, makes the one Stage for
  * it through the StageHost (three.js is only loaded, by dynamic import, when
  * that preference is 3D - see render/createStage.ts), then starts the frame
- * loop and the screens. Plus the browser gesture lockdown a full-screen
- * touch game needs.
+ * loop and the screens. Then the save notices (anything the player must
+ * know about their save) and the app lifecycle: hidden / shown / Android
+ * back go to App (see platform/lifecycle.ts). Plus the browser gesture
+ * lockdown a full-screen touch game needs.
  *
  * Nothing in this module's static import graph reaches three.js; the
  * architecture test checks that.
@@ -17,10 +19,12 @@ import { audio } from './game/systems/AudioManager';
 import { progress } from './game/systems/ProgressManager';
 import { t } from './i18n';
 import { applyLanguage, effectiveReducedMotion } from './app/Preferences';
+import { watchLifecycle } from './platform/lifecycle';
 import type { RenderMode } from './render/GameView';
 import type { StageOptions } from './render/Stage';
 import type { ThreeStage } from './render/three/ThreeStage';
 import { showNotice } from './ui/Notice';
+import { showBootNotices, watchSaveHealth } from './ui/SaveNotices';
 import { splashScreen } from './ui/Splash';
 
 function stageOptions(): StageOptions {
@@ -48,6 +52,8 @@ interface AppProbe {
   readonly quality: ThreeStage['quality'] | null;
   /** Reduced motion as the live stage has it (null mid-switch). */
   readonly reducedMotion: boolean | null;
+  /** The app is in the background as far as the lifecycle is concerned. */
+  readonly hidden: boolean;
 }
 
 declare global {
@@ -77,6 +83,15 @@ async function boot() {
   app.router.go(splashScreen);
   // 3D was preferred but could not start: say so once; the preference stays 3D.
   if (first.fellBack) showNotice(t('render.fallback2d'));
+  // What happened to the save while loading (recovered, unreadable, ...), then the live "cannot save" banner.
+  showBootNotices(progress.takeSaveNotices());
+  watchSaveHealth();
+  // Web: visibilitychange / pagehide / freeze. Native (Capacitor App plugin, not installed yet): state and back button.
+  watchLifecycle({
+    onHide: () => app.hide(),
+    onShow: () => app.show(),
+    onBack: () => app.back(),
+  });
 
   if (debugHooksEnabled()) {
     window.__cargoPanicApp = Object.freeze({
@@ -111,6 +126,9 @@ async function boot() {
       get reducedMotion() {
         const stage = host.stageOrNull as { reducedMotion?: boolean } | null;
         return stage?.reducedMotion ?? null;
+      },
+      get hidden() {
+        return app.hidden;
       },
     });
     // GPU resource counts, to catch leaks across screens (3D only; 2D reports the mode and frames).
@@ -153,8 +171,6 @@ document.addEventListener(
 );
 
 // --- audio unlock ------------------------------------------------------------
+// (Back from the background, App.show resumes the audio context.)
 window.addEventListener('pointerdown', () => audio.unlock());
 window.addEventListener('keydown', () => audio.unlock());
-document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) audio.unlock();
-});

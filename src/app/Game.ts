@@ -14,6 +14,17 @@
  * only the view reference changes. While the view is swapped the session is
  * held by the 'switching' pause reason; see PauseReasons.
  *
+ * The game is resumable. It is saved as the save's `active` entry (see
+ * activePlay.ts) when it starts, whenever the session's revision moves (a
+ * committed move, undo, counted hint, pause or resume - never per frame),
+ * when the app goes to the background and when the player leaves for a
+ * menu. The outcome writes what comes next in the same write as its record:
+ * a win or loss ends the active game, a cleared Endless wave banks its
+ * reward together with the next wave. A resumed game - and one dealt while
+ * the app is hidden - starts paused, with the "away" note on the pause
+ * panel; only RESUME starts the clocks. Outcome and between-wave delays run
+ * on the frame clock (FrameTimers), so they freeze while the app is hidden.
+ *
  * Design rule enforced everywhere: nothing ever fails instantly. Imbalance,
  * overloading and crushing all raise a visible countdown first, and the player
  * can always pick cargo back up to fix it - but holding a package does not
@@ -21,15 +32,19 @@
  */
 
 import type { AppContext, Screen } from './Router';
+import { activeFrom, bankWave, newShipment } from './activePlay';
+import type { Shipment } from './activePlay';
+import { FrameTimers } from './FrameTimers';
 import { PauseReasons } from './PauseReasons';
 import type { PauseReason } from './PauseReasons';
 import type { SwitchResult } from './StageHost';
 import { GRACE_MS } from '../game/config';
-import { getWave, prefetchWave } from '../game/levels/generator';
-import { getLevel, TOTAL_LEVELS } from '../game/levels/levels';
+import { prefetchWave } from '../game/levels/generator';
+import { TOTAL_LEVELS } from '../game/levels/levels';
 import { PACKAGE_SPECS } from '../game/levels/types';
 import type { LevelDef } from '../game/levels/types';
-import { campaignStars, GameSession, nextWave, rewardWave, waveSource } from '../game/session';
+import { campaignStars } from '../game/session';
+import type { GameSession } from '../game/session';
 import type { BlockReason, ShipmentOutcome, ShipmentSnapshot, TickResult } from '../game/session';
 import { audio } from '../game/systems/AudioManager';
 import { evaluate } from '../game/systems/BalanceSystem';
@@ -64,12 +79,11 @@ import type { TutorialStore } from '../ui/tutorialFlow';
 import { viewControls } from '../ui/ViewSettings';
 import { btn, el, fadeIn, fadeOut, iconBtn, uiRoot } from '../ui/dom';
 
-/** One free undo per shipment (campaign level or Endless wave); a new wave is a new session. */
-const UNDO_PER_SHIPMENT = 1;
-
 export interface GameData {
   levelId?: number;
   run?: RunState;
+  /** A saved game rebuilt by activePlay.resumeActive (paused). */
+  resume?: Shipment;
 }
 
 /** Read-only probe for browser tests (`?e2e`) and dev builds. */
@@ -157,9 +171,19 @@ export function gameScreen(ctx: AppContext, data: GameData): Screen {
 class GameController implements Screen {
   private level: LevelDef;
   private run: RunState | null;
+  /** The Endless wave this shipment is (the run moves on to the next one when it is banked). */
+  private readonly wave: number;
   private graceScale: number;
   private session: GameSession;
   private pauses: PauseReasons;
+  /** Continued from the save (starts paused on the "away" panel). */
+  private readonly resumed: boolean;
+  /** Session revision last saved as the active game. */
+  private savedRevision = -1;
+  /** False once the player chose to replace or end this game: leaving no longer saves it. */
+  private keepActive = true;
+  /** The app went away while the pause panel was closing after RESUME. */
+  private awayWhileClosing = false;
 
   private view!: GameView;
   /** False between detachStage and attachStage (a view switch in progress). */
@@ -188,13 +212,13 @@ class GameController implements Screen {
   private waveCard?: WaveClearCard;
   private suggestion?: SuggestCard;
   private pausePanel: PausePanel | null = null;
-  private legendOpen = false;
+  private legend: LegendPanel | null = null;
   private advancing = false;
   /** Endless: the cleared rack has been dispatched (a new view starts empty). */
   private dispatched = false;
   /** After an outcome: replays its look on a view mounted later (a switch). Rules are not involved. */
   private outcomeLook: ((view: GameView) => void) | null = null;
-  private timers: number[] = [];
+  private timers = new FrameTimers();
   private offFrame?: () => void;
   private offAdvanceTap?: () => void;
   private testHook?: GameTestHook;
@@ -203,24 +227,15 @@ class GameController implements Screen {
     private ctx: AppContext,
     data: GameData,
   ) {
-    this.run = data.run ?? null;
-    if (this.run) {
-      const plan = getWave(this.run.seed, this.run.wave);
-      this.level = plan.level;
-      this.graceScale = plan.graceScale;
-      this.session = new GameSession(this.level, {
-        source: waveSource(this.run),
-        graceScale: this.graceScale,
-        undoAllowance: UNDO_PER_SHIPMENT,
-      });
-    } else {
-      this.level = getLevel(data.levelId ?? 1);
-      this.graceScale = 1;
-      this.session = new GameSession(this.level, {
-        source: { mode: 'campaign', levelId: this.level.id },
-        undoAllowance: UNDO_PER_SHIPMENT,
-      });
-    }
+    // Dealt while the app is hidden (a wave deal or a panel's navigation finishing in the background): paused.
+    const shipment =
+      data.resume ?? newShipment(data.run ? { run: data.run } : { levelId: data.levelId ?? 1 }, ctx.app.hidden);
+    this.resumed = data.resume !== undefined;
+    this.run = shipment.run;
+    this.wave = shipment.run?.wave ?? 0;
+    this.level = shipment.level;
+    this.graceScale = shipment.graceScale;
+    this.session = shipment.session;
     this.pauses = new PauseReasons(this.session);
   }
 
@@ -235,7 +250,7 @@ class GameController implements Screen {
     this.hud = new Hud(
       this.run
         ? {
-            title: t('hud.wave', { n: this.run.wave }),
+            title: t('hud.wave', { n: this.wave }),
             subtitle: formatScore(this.run.score),
             subtitleGold: true,
             objective: this.objective(),
@@ -270,10 +285,10 @@ class GameController implements Screen {
 
     this.startTutorial();
     if (this.run) {
-      this.tip = new TipCard(this.waveIntro());
       const run = this.run;
-      this.after(120, () => prefetchWave(run.seed, run.wave + 1));
-    } else if (this.level.tip && !this.tutorial?.step) {
+      if (!this.resumed) this.tip = new TipCard(this.waveIntro());
+      this.timers.after(120, () => prefetchWave(run.seed, run.wave + 1));
+    } else if (this.level.tip && !this.tutorial?.step && !this.resumed) {
       // (A guide step on screen from the start says the same thing, with a pointer.)
       this.tip = new TipCard(levelText(this.level.id, 'tip', this.level.tip));
     }
@@ -319,20 +334,31 @@ class GameController implements Screen {
 
     this.offFrame = this.ctx.loop.onFrame(this.frame);
     this.installTestHook();
+    // This game is now the one to resume (it replaces any other).
+    this.persist();
+    if (this.resumed) {
+      // The clocks as saved, behind the panel; nothing moves until RESUME.
+      this.showHazard({ hazard: this.session.hazard, outcome: null }, 0);
+      this.openPause({ away: true });
+    }
+    if (this.ctx.app.hidden) this.goneAway();
     fadeIn();
   }
 
   exit() {
+    // Leaving for a menu keeps this game resumable (a finished one was settled by its outcome).
+    this.persist(true);
     this.offFrame?.();
     this.interaction.detach();
     window.removeEventListener('keydown', this.onKey);
     this.offAdvanceTap?.();
-    for (const t of this.timers) clearTimeout(t);
+    this.timers.clear();
     this.tip?.dismiss();
     this.cargoTip?.dismiss();
     this.tutorial?.dispose();
     this.waveCard?.dismiss();
     this.suggestion?.dismiss();
+    this.legend = null;
     if (this.viewLive) this.view.dispose();
     this.viewLive = false;
     this.hud.destroy();
@@ -382,7 +408,7 @@ class GameController implements Screen {
    */
   languageChanged() {
     const run = this.run;
-    this.hud.setTitle(run ? t('hud.wave', { n: run.wave }) : t('hud.level', { n: this.level.id }));
+    this.hud.setTitle(run ? t('hud.wave', { n: this.wave }) : t('hud.level', { n: this.level.id }));
     if (!run) this.hud.setSubtitle(levelText(this.level.id, 'name', this.level.name));
     this.hud.relabel();
     this.meter.relabel();
@@ -397,9 +423,10 @@ class GameController implements Screen {
     this.tutorial?.relabel();
     // A panel already closing (RESUME, RESTART, EXIT) finishes its own close and resume.
     if (this.pausePanel?.open) {
+      const away = this.pausePanel.away;
       this.pausePanel.dismissNow();
       this.pausePanel = null;
-      this.openPause();
+      this.openPause({ away });
     }
   }
 
@@ -422,24 +449,77 @@ class GameController implements Screen {
     return { ...b, placements: [], queue: [], held: null, evaluation: empty, wobble: false };
   }
 
+  /** Escape on the web does what the Android back button does. */
   private onKey = (e: KeyboardEvent) => {
-    if (e.key === 'Escape' && !e.repeat) this.openPause();
+    if (e.key === 'Escape' && !e.repeat) this.back();
   };
 
-  private after(ms: number, fn: () => void) {
-    const t = window.setTimeout(fn, ms);
-    this.timers.push(t);
-    return t;
+  /**
+   * Android back button / Escape: closes the cargo guide, else opens the
+   * pause panel or - if it is open - resumes (not while a view switch runs).
+   * Always handled: the game never lets the app exit.
+   */
+  back(): boolean {
+    if (this.legend) this.closeLegend();
+    else if (this.pausePanel) this.pausePanel.resume();
+    else this.openPause();
+    return true;
+  }
+
+  /**
+   * The app went to the background. Whatever is pressed, dragged or selected
+   * is let go (the board is untouched), the shipment pauses with the "away"
+   * note - only RESUME lifts that - and the game is saved now.
+   */
+  hide() {
+    this.interaction.reset();
+    this.goneAway();
+    this.persist(true);
+  }
+
+  /** Paused for being away: the 'hidden' reason, and the pause panel saying so. */
+  private goneAway() {
+    const phase = this.session.phase;
+    if (phase !== 'play' && phase !== 'paused') return; // a finished shipment has nothing to hold
+    this.pauses.add('hidden');
+    if (this.legend) this.closeLegend();
+    const panel = this.pausePanel;
+    if (panel?.open) panel.showAway();
+    else if (panel) this.awayWhileClosing = true; // RESUME was pressed just before leaving: it no longer counts
+    else this.openPause({ away: true });
+  }
+
+  /**
+   * Saves this game as the one to resume, unless it is finished (its outcome
+   * already wrote what comes next) or the player replaced or ended it.
+   * `flush` writes now instead of with the task's other changes.
+   */
+  private persist(flush = false) {
+    this.savedRevision = this.session.revision;
+    const phase = this.session.phase;
+    if (!this.keepActive || phase === 'won' || phase === 'failed') return;
+    progress.setActive(activeFrom(this.session, this.run));
+    if (flush) progress.flush();
   }
 
   private goto(factory: Parameters<AppContext['router']['go']>[0]) {
     void fadeOut(200).then(() => this.ctx.router.go(factory));
   }
 
+  /** The same level again from the start: the new game replaces this one as the one to resume. */
   private restartLevel() {
     this.interaction.cancel();
+    this.keepActive = false;
+    progress.setActive(null);
     const id = this.level.id;
     this.goto((c) => gameScreen(c, { levelId: id }));
+  }
+
+  /** END RUN: the shift is given up; nothing is left to resume. */
+  private endRun() {
+    this.keepActive = false;
+    progress.setActive(null);
+    this.goto(menuScreen);
   }
 
   private installTestHook() {
@@ -592,12 +672,15 @@ class GameController implements Screen {
   // ==========================================================================
 
   private frame = (animMs: number, realMs: number) => {
+    // A command since the last frame moved the revision: that is a commit to save (one compare per frame).
+    if (this.session.revision !== this.savedRevision) this.persist();
     if (this.viewLive) {
       this.view.update(animMs);
       this.interaction.update();
     }
     this.meter.tick(animMs);
     this.updateTutorial(animMs);
+    this.timers.update(realMs);
     if (this.session.phase !== 'play') return;
 
     const r = this.session.advance(realMs);
@@ -691,10 +774,10 @@ class GameController implements Screen {
   // ==========================================================================
 
   /**
-   * UNDO is shown available while the shipment is on (a pause does not end
-   * it), the free undo is unused and there is a committed move to take back.
-   * A package in hand or selected does not grey it out: pressing it puts that
-   * package back first.
+   * UNDO is shown available while the shipment is on (playing, or paused -
+   * a game restored paused shows what RESUME gives back), the free undo is
+   * unused and there is a committed move to take back. A package in hand or
+   * selected does not grey it out: pressing it puts that package back first.
    */
   private refreshUndo() {
     const snap = this.session.snapshot();
@@ -747,6 +830,7 @@ class GameController implements Screen {
     this.endHazardUi();
     const stars = campaignStars(o);
     const previousBest = progress.bestBalanceFor(this.level.id);
+    // Also ends the resumable game, in the same write.
     const record = progress.recordWin(this.level.id, stars, o.imbalance);
 
     audio.win();
@@ -754,7 +838,7 @@ class GameController implements Screen {
     if (this.viewLive) this.view.celebrate();
 
     const id = this.level.id;
-    this.after(520, () => {
+    this.timers.after(520, () => {
       new WinPanel(
         {
           levelId: id,
@@ -838,9 +922,10 @@ class GameController implements Screen {
 
     if (this.run) {
       const run = this.run;
+      // Also ends the resumable run, in the same write.
       const newBest = progress.recordRun(run.score, run.wave);
       const stats = progress.endless;
-      this.after(delay, () => {
+      this.timers.after(delay, () => {
         new RunOverPanel(
           {
             seed: run.seed,
@@ -866,7 +951,8 @@ class GameController implements Screen {
       });
       return;
     }
-    this.after(delay, () => {
+    progress.setActive(null);
+    this.timers.after(delay, () => {
       new FailPanel(reason, detail, {
         onRetry: () => this.restartLevel(),
         onLevels: () => this.goto(levelSelectScreen),
@@ -909,9 +995,9 @@ class GameController implements Screen {
   // ==========================================================================
 
   private waveIntro(): string {
-    const run = this.run;
-    if (!run) return '';
-    const note = (WAVE_NOTES as readonly number[]).includes(run.wave) ? t(`wave.intro.${run.wave}` as WaveNoteKey) : null;
+    if (!this.run) return '';
+    const wave = this.wave;
+    const note = (WAVE_NOTES as readonly number[]).includes(wave) ? t(`wave.intro.${wave}` as WaveNoteKey) : null;
     const grace = (GRACE_MS.balance * this.graceScale) / 1000;
     const stats =
       t('wave.stats', {
@@ -928,8 +1014,9 @@ class GameController implements Screen {
     this.endHazardUi();
     this.tip?.dismiss();
 
-    // Applied once per wave, however often this is reached.
-    const { result } = rewardWave(run, this.level, o);
+    // The reward, the move to the next wave and the saved run are one claim:
+    // paid once per wave, however often this is reached or the game reloaded.
+    const bank = bankWave(progress, run, this.level, o);
 
     audio.win();
     haptics.win();
@@ -944,11 +1031,11 @@ class GameController implements Screen {
     this.meter.setValue(0, 0, 0, 'stable');
     this.hud.setObjective(this.objective());
     this.hud.setRemaining(0, this.level.packages.length);
-    this.waveCard = new WaveClearCard(result, run.wave);
+    if (bank?.paid) this.waveCard = new WaveClearCard(bank.result, bank.wave);
 
     // A pending "try 2D?" choice holds the next wave until it is answered.
     const asked = this.offerTwoD(() => this.advanceWave());
-    this.after(700, () => {
+    this.timers.after(700, () => {
       if (this.advancing) return;
       const surface = this.surface;
       const tap = () => {
@@ -958,16 +1045,16 @@ class GameController implements Screen {
       surface.addEventListener('pointerdown', tap, { once: true });
       this.offAdvanceTap = () => surface.removeEventListener('pointerdown', tap);
     });
-    if (!asked) this.after(2400, () => this.advanceWave());
+    if (!asked) this.timers.after(2400, () => this.advanceWave());
   }
 
+  /** Deals the next wave (the run already moved on when the wave was banked). */
   private advanceWave() {
     const run = this.run;
     if (!run || this.advancing) return;
     this.advancing = true;
     this.offAdvanceTap?.();
     this.waveCard?.dismiss();
-    nextWave(run);
     this.goto((c) => gameScreen(c, { run }));
   }
 
@@ -976,21 +1063,36 @@ class GameController implements Screen {
   // ==========================================================================
 
   private openLegend() {
-    if (this.legendOpen || this.pausePanel || this.session.phase !== 'play') return;
+    if (this.legend || this.pausePanel || this.session.phase !== 'play') return;
     // Opening a panel mid-drag puts the package back; the rules clocks stop while it is open.
     this.interaction.cancel();
     this.pauses.add('legend');
-    this.legendOpen = true;
-    new LegendPanel(() => {
-      this.legendOpen = false;
-      this.pauses.remove('legend');
-    });
+    const panel: LegendPanel = new LegendPanel(() => this.legendClosed(panel));
+    this.legend = panel;
   }
 
-  /** Pause panel: also reachable while held by another reason (a switch, a lost context). */
-  private openPause() {
+  /** Closes the cargo guide at once (Android back, or the app going to the background). */
+  private closeLegend() {
+    const panel = this.legend;
+    if (!panel) return;
+    panel.dismissNow();
+    this.legendClosed(panel);
+  }
+
+  private legendClosed(panel: LegendPanel) {
+    if (this.legend !== panel) return;
+    this.legend = null;
+    this.pauses.remove('legend');
+  }
+
+  /**
+   * Pause panel: also reachable while held by another reason (a switch, a
+   * lost context, the app away). `away` adds the "paused while you were
+   * away" line.
+   */
+  private openPause(opts: { away?: boolean } = {}) {
     const phase = this.session.phase;
-    if (this.pausePanel || this.legendOpen || (phase !== 'play' && phase !== 'paused')) return;
+    if (this.pausePanel || this.legend || (phase !== 'play' && phase !== 'paused')) return;
     this.interaction.cancel();
     this.pauses.add('menu');
     const closed = () => {
@@ -1011,13 +1113,21 @@ class GameController implements Screen {
       },
       onResume: () => {
         closed();
+        if (this.awayWhileClosing) {
+          // The app went away between RESUME and the panel closing: pause again, saying so.
+          this.awayWhileClosing = false;
+          this.openPause({ away: true });
+          return;
+        }
+        // RESUME is the only thing that lifts a pause for being away.
+        this.pauses.remove('hidden');
         this.pauses.remove('menu');
       },
       restartLabel: this.run ? t('pause.endRun') : t('pause.restartLevel'),
       exitLabel: this.run ? t('pause.mainMenu') : t('pause.levelSelect'),
       onRestart: () => {
         closed();
-        if (this.run) this.goto(menuScreen);
+        if (this.run) this.endRun();
         else this.restartLevel();
       },
       onExit: () => {
@@ -1025,6 +1135,7 @@ class GameController implements Screen {
         this.goto(this.run ? menuScreen : levelSelectScreen);
       },
       view: viewControls(this.ctx),
+      away: opts.away,
     });
   }
 }

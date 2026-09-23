@@ -207,6 +207,38 @@ describe('failure is loud', () => {
     assert.equal(s.status.writeFailed, false);
   });
 
+  test('status listeners hear the failure and the recovery, once each', () => {
+    const mem = new FlakyStore();
+    const s = new SaveStore(mem, LEVELS);
+    s.load();
+    const seen: boolean[] = [];
+    s.onStatus((st) => seen.push(st.writeFailed));
+    mem.failWrites = true;
+    s.update((d) => (d.campaign.unlocked = 4));
+    s.flush();
+    s.update((d) => (d.campaign.unlocked = 5));
+    s.flush();
+    mem.failWrites = false;
+    s.flush();
+    s.flush();
+    assert.deepEqual(seen, [true, false]);
+  });
+
+  test('going back to exactly what storage holds clears write-failed: nothing is at risk', () => {
+    const mem = new FlakyStore();
+    const s = new SaveStore(mem, LEVELS);
+    s.load();
+    s.update((d) => (d.campaign.unlocked = 2));
+    s.flush();
+    mem.failWrites = true;
+    s.update((d) => (d.campaign.unlocked = 3));
+    s.flush();
+    assert.equal(s.status.writeFailed, true);
+    s.update((d) => (d.campaign.unlocked = 2));
+    assert.equal(s.flush(), true);
+    assert.equal(s.status.writeFailed, false);
+  });
+
   test('no storage at all is reported, and play continues from memory', () => {
     const { s, source, notices } = open(null);
     assert.equal(source, 'no-storage');
