@@ -182,6 +182,8 @@ class GameController implements Screen {
   private savedRevision = -1;
   /** False once the player chose to replace or end this game: leaving no longer saves it. */
   private keepActive = true;
+  /** The app went away while the pause panel was closing after RESUME. */
+  private awayWhileClosing = false;
 
   private view!: GameView;
   /** False between detachStage and attachStage (a view switch in progress). */
@@ -478,7 +480,9 @@ class GameController implements Screen {
     if (phase !== 'play' && phase !== 'paused') return; // a finished shipment has nothing to hold
     this.pauses.add('hidden');
     if (this.legend) this.closeLegend();
-    if (this.pausePanel) this.pausePanel.showAway();
+    const panel = this.pausePanel;
+    if (panel?.open) panel.showAway();
+    else if (panel) this.awayWhileClosing = true; // RESUME was pressed just before leaving: it no longer counts
     else this.openPause({ away: true });
   }
 
@@ -764,13 +768,15 @@ class GameController implements Screen {
   // ==========================================================================
 
   /**
-   * UNDO is shown available while the shipment is on, the free undo is
+   * UNDO is shown available while the shipment is on (playing, or paused -
+   * a game restored paused shows what RESUME gives back), the free undo is
    * unused and there is a committed move to take back. A package in hand or
    * selected does not grey it out: pressing it puts that package back first.
    */
   private refreshUndo() {
     const snap = this.session.snapshot();
-    const ready = snap.phase === 'play' && snap.undoLeft > 0 && snap.undo !== null;
+    const on = snap.phase === 'play' || snap.phase === 'paused';
+    const ready = on && snap.undoLeft > 0 && snap.undo !== null;
     this.undoBtn.classList.toggle('off', !ready);
     this.undoBtn.setAttribute('aria-disabled', String(!ready));
   }
@@ -1098,6 +1104,12 @@ class GameController implements Screen {
       },
       onResume: () => {
         closed();
+        if (this.awayWhileClosing) {
+          // The app went away between RESUME and the panel closing: pause again, saying so.
+          this.awayWhileClosing = false;
+          this.openPause({ away: true });
+          return;
+        }
         // RESUME is the only thing that lifts a pause for being away.
         this.pauses.remove('hidden');
         this.pauses.remove('menu');
