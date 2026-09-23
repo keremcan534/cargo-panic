@@ -286,9 +286,9 @@ class GameController implements Screen {
       session: this.session,
       view: this.view,
       hooks: {
+        // A press may still become a tap-select: the hint stays until a drag begins or a move is made.
         grabbed: () => {
           audio.unlock();
-          this.clearHint();
           this.tip?.dismiss();
           audio.pickup();
           haptics.tap();
@@ -301,12 +301,14 @@ class GameController implements Screen {
           haptics.reject();
         },
         placed: (_id, _quiet, from) => {
+          this.clearHint();
           this.refresh();
           this.tutorial?.moved(from.at === 'shelf', this.session.placements.length);
         },
         selected: (id) => this.showControlsText(id !== null),
         landed: (id) => this.landingFeedback(id),
         toBelt: () => {
+          this.clearHint();
           this.hud.toast(t('toast.backOnBelt'), 'info');
           this.refresh();
         },
@@ -539,10 +541,13 @@ class GameController implements Screen {
   /**
    * The first time a heavy, fragile, long or priority package is the live
    * belt package - in any mode and level - one short explainer, once ever.
+   * Not while a danger runs (its banner would dismiss the card at once); the
+   * move that clears the danger brings it.
    */
   private explainNewCargo() {
     const cur = this.session.current;
     if (cur === null || this.session.phase === 'won' || this.session.phase === 'failed') return;
+    if (this.session.hazard.kind !== null) return;
     const type = this.level.packages[cur];
     if (!isExplained(type) || progress.tutorial.seenCargo.includes(type)) return;
     progress.markCargoSeen(type);
@@ -672,7 +677,7 @@ class GameController implements Screen {
       this.hud.toast(t('toast.stuck'), 'info');
       return;
     }
-    // The view clears it after HINT_MS or when a drag begins (GameView.showHint).
+    // The view clears it after HINT_MS or when a drag begins (GameView.showHint); a committed move clears it too.
     if (this.viewLive) this.view.showHint(current, { shelf: hint.shelf, slot: hint.slot });
     if (hint.kind === 'rearrange') this.hud.toast(t('toast.rearrange'), 'info');
   }

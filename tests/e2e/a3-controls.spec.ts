@@ -11,6 +11,7 @@
 
 import { expect, test } from '@playwright/test';
 import type { CDPSession, Page } from '@playwright/test';
+import { hintFor } from '../../src/game/systems/Solver';
 import {
   Hand,
   aimed,
@@ -203,6 +204,54 @@ test('2d: a refused UNDO says why and leaves the selected package selected', asy
   await expect(page.locator('.toast', { hasText: 'UNDO ALREADY USED THIS SHIPMENT' })).toHaveCount(1);
   expect(await selection(page)).toBe(1);
   expect(await held(page)).toBe(1);
+  expect(errors).toEqual([]);
+  await context.close();
+});
+
+/** Pixels of the hint's gold (#ffc93c: dashed outline and icon) within 16 CSS px of a point on the 2D canvas. */
+const hintGoldNear = (page: Page, p: { x: number; y: number }) =>
+  page.evaluate(({ x, y }) => {
+    const c = document.getElementById('game-canvas') as HTMLCanvasElement;
+    const r = c.getBoundingClientRect();
+    const k = c.width / r.width;
+    const half = Math.round(16 * k);
+    const cx = Math.round((x - r.left) * k);
+    const cy = Math.round((y - r.top) * k);
+    const d = c.getContext('2d')!.getImageData(cx - half, cy - half, half * 2, half * 2).data;
+    let n = 0;
+    for (let i = 0; i < d.length; i += 4) if (d[i] > 225 && d[i + 1] > 175 && d[i + 1] < 225 && d[i + 2] < 110) n++;
+    return n;
+  }, p);
+
+test('2d: tapping the package a HINT points at keeps the hint up; the move clears it', async ({ browser, baseURL }) => {
+  test.slow();
+  const { context, page, errors } = await openWithSave(browser, baseURL, quietSave('2d'));
+  await bootToMenu(page);
+  await startLevel(page, 4);
+  const board = await page.evaluate(() => window.__cargoPanic!.board());
+  const hint = hintFor(board.level, [...board.placements], [...board.queue], 0);
+  if (hint.kind === 'stuck') throw new Error('level 4 has a hint for its first crate');
+  const spot = await pointOf(page, { shelf: hint.shelf, slot: hint.slot, slots: 1 });
+  const gold = () => hintGoldNear(page, spot);
+  const before = await gold();
+
+  await page.locator('[data-role="hint"]').dispatchEvent('click');
+  await expect.poll(gold).toBeGreaterThan(before + 20);
+  expect((await snapshot(page)).assists.hints).toBe(1);
+  await page.screenshot({ path: `${SHOTS}/2d-hint.png` });
+
+  // Tap-selecting the crate is using the hint, not dropping it.
+  await selectCargo(page, 0);
+  await frames(page, 5);
+  expect(await gold()).toBeGreaterThan(before + 20);
+  await page.screenshot({ path: `${SHOTS}/2d-hint-selected.png` });
+
+  // Placed somewhere else: the hint is stale and goes.
+  const other = hint.slot === 1 ? 3 : 1;
+  await tapTarget(page, { shelf: hint.shelf, slot: other, slots: 1 });
+  await expect.poll(async () => (await placements(page)).map((p) => p.slot)).toEqual([other]);
+  await frames(page, 5);
+  expect(await gold()).toBeLessThanOrEqual(before + 5);
   expect(errors).toEqual([]);
   await context.close();
 });

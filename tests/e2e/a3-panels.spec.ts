@@ -265,6 +265,43 @@ test('2d: LANGUAGE in the pause panel keeps UNDO available after RESUME, and a p
 // First-session guide.
 // ---------------------------------------------------------------------------
 
+test('2d: a first-encounter cargo note waits while a danger runs, then shows once it is fixed', async ({
+  browser,
+  baseURL,
+}) => {
+  test.slow();
+  const save = quietSave('2d', (d) => {
+    d.tutorial.seenCargo = ['heavy', 'long', 'priority'];
+  });
+  const { context, page, errors } = await openWithSave(browser, baseURL, save);
+  await bootToMenu(page);
+  await startLevel(page, 11); // heavy, then fragile
+  await page.evaluate(() => {
+    const seen: string[] = ((window as unknown as { __cargoNotes: string[] }).__cargoNotes = []);
+    new MutationObserver((records) => {
+      for (const r of records) {
+        for (const n of r.addedNodes) if (n instanceof HTMLElement && n.matches('.tip.cargo-first')) seen.push(n.textContent ?? '');
+      }
+    }).observe(document.body, { childList: true, subtree: true });
+  });
+  const notes = () => page.evaluate(() => (window as unknown as { __cargoNotes: string[] }).__cargoNotes);
+
+  // The heavy crate one slot off centre: over the limit (5 against 4), a 3 s countdown. The fragile box is live now.
+  await tapPlace(page, 0, { shelf: 0, slot: 3, slots: 1 });
+  await expect(page.locator('.hazard.on')).toBeVisible();
+  expect((await snapshot(page)).queue[0]).toBe(1);
+  expect(await notes()).toEqual([]); // not flashed and used up under the danger banner
+
+  // Fixed: the note comes now.
+  await tapPlace(page, 0, { shelf: 0, slot: 2, slots: 1 });
+  await expect(page.locator('.tip.cargo-first')).toHaveText(/^FRAGILE/);
+  expect(await notes()).toHaveLength(1);
+  expect(saveData(await storedSave(page))?.tutorial.seenCargo).toContain('fragile');
+  expect((await snapshot(page)).phase).toBe('play');
+  expect(errors).toEqual([]);
+  await context.close();
+});
+
 test('guide: a fresh save shows the level 1 hand, it goes after the first placement; SKIP works; no upsell in levels 1-2', async ({
   browser,
   baseURL,
