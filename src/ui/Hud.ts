@@ -60,7 +60,6 @@ export class Hud {
       el('div', { class: 'line' }, [el('span', { class: 'warn-icon', html: WARNING_SVG }), this.bannerText]),
       el('div', { class: 'bar' }, [this.bannerBar]),
     ]);
-    this.banner.setAttribute('role', 'alert');
 
     uiRoot().append(this.el, this.banner);
   }

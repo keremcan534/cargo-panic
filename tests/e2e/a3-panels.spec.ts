@@ -252,6 +252,20 @@ test('guide: a fresh save shows the level 1 hand, it goes after the first placem
   await page.screenshot({ path: `${SHOTS}/2d-guide-level1-hand.png` });
   expect(await page.locator(NO_UPSELL).count()).toBe(0);
 
+  // The pause panel covers the guide: its SKIP button is not what a tap there reaches.
+  const skip = await guide.locator('[data-role="skip-tutorial"]').boundingBox();
+  expect(skip).not.toBeNull();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.modal .headline')).toHaveText('PAUSED');
+  await frames(page, 5);
+  const onTop = await page.evaluate(
+    ([x, y]) => document.elementFromPoint(x, y)?.closest('[data-role="tutorial"], .modal')?.className ?? null,
+    [skip!.x + skip!.width / 2, skip!.y + skip!.height / 2],
+  );
+  expect(onTop).toContain('modal');
+  await page.locator('[data-role="resume"]').dispatchEvent('click');
+  await expect.poll(async () => (await snapshot(page)).phase).toBe('play');
+
   // The guide takes no input: the first placement goes straight through it.
   await tapPlace(page, 0, { shelf: 0, slot: 1, slots: 1 });
   await expect(guide).toHaveCount(0);

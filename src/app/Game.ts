@@ -528,7 +528,7 @@ class GameController implements Screen {
       live: s.current,
       placeTarget: this.placeTarget,
       stowed: s.placements[0]?.id ?? null,
-      ghostNeedle: this.meter.ghostAnchor(),
+      ghostNeedle: () => this.meter.ghostAnchor(),
     });
     // The guide's card and the level tip share a spot; the guide wins.
     if (tut.step) this.tip?.dismiss();

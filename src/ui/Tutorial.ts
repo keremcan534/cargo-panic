@@ -38,8 +38,8 @@ export interface TutorialFrame {
   placeTarget: { shelf: number; slot: number; slots: number } | null;
   /** Level 3: a stowed package to point at. */
   stowed: number | null;
-  /** Level 2: just under the meter's ghost needle. */
-  ghostNeedle: ClientPoint | null;
+  /** Level 2: just under the meter's ghost needle (read only when that step shows: it measures the DOM). */
+  ghostNeedle: () => ClientPoint | null;
 }
 
 export class Tutorial {
@@ -142,8 +142,8 @@ export class Tutorial {
         const bob = f.reducedMotion ? 0 : Math.abs(Math.sin((this.time / 600) * Math.PI)) * 8;
         hand = { x: at.x, y: at.y + bob };
       }
-    } else if (step === 'preview' && f.ghostNeedle) {
-      arrow = f.ghostNeedle;
+    } else if (step === 'preview') {
+      arrow = f.ghostNeedle();
     }
     place(this.hand, hand, -TIP.x * (HAND_PX / 48), -TIP.y * (HAND_PX / 48));
     place(this.ring, ring, 0, 0);

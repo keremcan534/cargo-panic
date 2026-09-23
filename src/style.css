@@ -365,7 +365,8 @@ html, body {
 
 /* ------------------------------------------------ first-session guide */
 /* Takes no input except SKIP: the board underneath plays as without it. */
-.tutorial { position: absolute; inset: 0; pointer-events: none; z-index: 4; }
+/* No z-index: appended after the HUD it sits above; modals opened later (pause, guide) cover it. */
+.tutorial { position: absolute; inset: 0; pointer-events: none; }
 .tutorial[hidden] { display: none; }
 .tutorial .tut-card {
   position: absolute; left: 50%; transform: translateX(-50%); width: min(94vw, 560px);
