@@ -403,6 +403,8 @@ test('guide: level 3 points at a stowed package after the first stow and leaves 
   await expect(guide).toBeVisible();
   await expect(guide).toHaveAttribute('data-step', 'move');
   await expect(guide.locator('.tut-hand')).toBeVisible();
+  await expect(guide.locator('.tut-text')).toBeVisible();
+  const card = (await guide.locator('.tut-card').boundingBox())!;
   // The hand is on the stowed package.
   const hand = await guide.locator('.tut-hand').boundingBox();
   const box = await pointOf(page, { cargo: 0 });
@@ -413,6 +415,19 @@ test('guide: level 3 points at a stowed package after the first stow and leaves 
   // Another belt package does not finish it; moving the stowed one does.
   await tapPlace(page, 1, { shelf: 1, slot: 2, slots: 1 });
   await expect(guide).toBeVisible();
+  // A package has been picked up, so the card is read: its text goes, SKIP stays - inside the area the
+  // card covered (never over the rack) and clear of the meter's readout.
+  const skip = guide.locator('[data-role="skip-tutorial"]');
+  await expect(guide).toHaveClass(/\bread\b/);
+  await expect(guide.locator('.tut-text')).toBeHidden();
+  await expect(skip).toBeVisible();
+  await skip.click({ trial: true }); // nothing covers it
+  const chip = (await skip.boundingBox())!;
+  expect(chip.x).toBeGreaterThanOrEqual(card.x - 2);
+  expect(chip.y).toBeGreaterThanOrEqual(card.y - 2);
+  expect(chip.y + chip.height).toBeLessThanOrEqual(card.y + card.height + 2);
+  expect(chip.x + chip.width).toBeLessThanOrEqual((await page.locator('.meter .delta').boundingBox())!.x);
+  await page.screenshot({ path: `${SHOTS}/2d-guide-level3-read.png` });
   await tapPlace(page, 0, { shelf: 0, slot: 1, slots: 1 });
   await expect(guide).toHaveCount(0);
   expect(saveData(await storedSave(page))?.tutorial.done).toEqual(['move']);

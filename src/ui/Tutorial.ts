@@ -52,8 +52,8 @@ export class Tutorial {
   private shownStep: TutorialStep | null = null;
   /**
    * 'place' / 'move' cards sit over the meter band: once the player has
-   * picked something up they have read it, so the card goes for good and
-   * only the pointer stays (the meter is theirs again).
+   * picked something up they have read it, so the text goes for good and
+   * only the pointer and a small SKIP button stay (the meter is theirs again).
    */
   private cardRead = false;
   private gone = false;

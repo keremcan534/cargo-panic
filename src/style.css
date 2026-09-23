@@ -384,7 +384,14 @@ html, body {
 .tutorial .btn.tut-skip { flex: 0 0 auto; pointer-events: auto; min-height: 48px; height: 48px; min-width: 0; width: auto;
   font-size: clamp(.78rem, 3.2vw, .95rem); padding: 0 .8rem; white-space: normal; line-height: 1.05; max-width: 34%; }
 .tutorial.aside .tut-card, .tutorial.holding:not([data-step="preview"]) .tut-card { visibility: hidden; opacity: 0; }
-.tutorial.read:not([data-step="preview"]) .tut-card { display: none; }
+/* Read: the text goes and the meter is the player's again, but SKIP stays reachable for as long as the
+   pointer is up - a small button at the meter's label end, inside the area the card covered (so never
+   over the rack), and hidden with the card while a package is in hand or a danger runs. */
+.tutorial.read:not([data-step="preview"]) .tut-card {
+  left: 12px; transform: none; width: auto; padding: 0; border: 0; background: none; box-shadow: none;
+}
+.tutorial.read:not([data-step="preview"]) .tut-text { display: none; }
+.tutorial.read:not([data-step="preview"]) .btn.tut-skip { max-width: none; }
 .tutorial .tut-hand { position: absolute; left: 0; top: 0; width: 52px; height: 52px; filter: drop-shadow(0 4px 3px rgba(0,0,0,.55)); }
 .tutorial .tut-hand svg { width: 100%; height: 100%; }
 .tutorial.holding .tut-hand, .tutorial.holding .tut-ring { opacity: 0; }
