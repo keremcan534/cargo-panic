@@ -18,10 +18,13 @@ import type { LevelDef } from '../../src/game/levels/types';
 import { evaluate } from '../../src/game/systems/BalanceSystem';
 import type { Placement } from '../../src/game/systems/BalanceSystem';
 import type { BoardView } from '../../src/render/GameView';
+import { HERO_GAP } from '../../src/render/hero';
+import type { ScreenRect } from '../../src/render/Stage';
 import { Tweens } from '../../src/render/Tween';
 import { menuBackdrop } from '../../src/render/three/backdrops';
+import { applyFraming, CAMERA_FOV } from '../../src/render/three/Framing';
 import { ThreeGameView } from '../../src/render/three/ThreeGameView';
-import type { ThreeStage } from '../../src/render/three/ThreeStage';
+import type { FramingAdjust, ThreeStage } from '../../src/render/three/ThreeStage';
 import type { Shelf3D } from '../../src/render/three/world/Shelf3D';
 
 /** A 2D context that takes any call or property and draws nothing. */
@@ -44,21 +47,34 @@ function fakeContext(): unknown {
   createElement: () => ({ width: 0, height: 0, style: {}, getContext: () => fakeContext() }),
 };
 
-/** What the views and backdrops use of a ThreeStage. */
+/** What the views and backdrops use of a ThreeStage, on a 360 x 640 screen. */
 class FakeStage {
   tweens = new Tweens();
   scene = new THREE.Scene();
   reducedMotion = false;
   particles = { emit() {} };
   updaters = new Set<(dtMs: number) => void>();
-  heroProbe: (() => unknown) | null = null;
-  frame() {}
+  heroProbe: (() => ScreenRect | null) | null = null;
+  viewSize = { width: 360, height: 640 };
+  camera = new THREE.PerspectiveCamera(CAMERA_FOV, 360 / 640, 0.1, 120);
+  private framing: { tiers: number; maxSlots: number; adjust?: FramingAdjust } = { tiers: 2, maxSlots: 5 };
+  /** As ThreeStage.frame: a plain lens, the solved framing, then the caller's adjustment. */
+  frame(tiers: number, maxSlots: number, adjust?: FramingAdjust) {
+    this.framing = { tiers, maxSlots, adjust };
+    this.camera.zoom = 1;
+    this.camera.clearViewOffset();
+    applyFraming(this.camera, this.viewSize.width / this.viewSize.height, tiers, maxSlots);
+    adjust?.(this.camera);
+  }
+  reframe() {
+    this.frame(this.framing.tiers, this.framing.maxSlots, this.framing.adjust);
+  }
   shake() {}
   onRender(fn: (dtMs: number) => void) {
     this.updaters.add(fn);
     return () => this.updaters.delete(fn);
   }
-  reportHero(probe: () => unknown) {
+  reportHero(probe: () => ScreenRect | null) {
     this.heroProbe = probe;
     return () => {
       if (this.heroProbe === probe) this.heroProbe = null;
@@ -195,5 +211,43 @@ describe('3D title backdrop', () => {
     backdrop.dispose();
     assert.equal(stage.updaters.size, 0, 'the per-frame hook goes with it');
     assert.equal(stage.heroProbe, null, 'and so does its test probe');
+  });
+
+  test('the hero rack is framed into the free band: left alone when it fits, else shrunk, else hidden', () => {
+    const stage = new FakeStage();
+    stage.reducedMotion = true; // upright, so its centre line is the screen's
+    const backdrop = menuBackdrop(stage.asStage);
+    const drawn = () => stage.heroProbe!();
+    const close = (a: ScreenRect | null, b: ScreenRect, what: string) => {
+      assert.ok(a, what);
+      for (const k of ['x', 'y', 'w', 'h'] as const) assert.ok(Math.abs(a[k] - b[k]) < 1e-6, `${what}: ${k} ${a[k]} vs ${b[k]}`);
+    };
+    const natural = drawn()!;
+    assert.ok(natural.w > 300 && natural.h > 120, 'no band yet: the rack at its natural size');
+
+    // A band with room around it (tall phones): the camera is not touched.
+    backdrop.setHeroBand!({ top: natural.y - 40, bottom: natural.y + natural.h + 40 });
+    close(drawn(), natural, 'room to spare');
+    assert.equal(stage.camera.zoom, 1);
+
+    // 360 x 640 without CONTINUE: the tagline ends at 216, the stars chip starts at 323.
+    const band = { top: 216, bottom: 323 };
+    backdrop.setHeroBand!(band);
+    const r = drawn()!;
+    assert.ok(r, 'still shown');
+    assert.ok(r.y >= band.top + HERO_GAP - 1 && r.y + r.h <= band.bottom - HERO_GAP + 1, `inside the band: ${JSON.stringify(r)}`);
+    assert.ok(r.h < natural.h * 0.75, 'smaller');
+    assert.ok(Math.abs(r.x + r.w / 2 - (natural.x + natural.w / 2)) < 1, 'on the same centre line');
+
+    // With CONTINUE the band is 43 px: too small to read the rack in, so it is not drawn.
+    backdrop.setHeroBand!({ top: 216, bottom: 259 });
+    assert.equal(drawn(), null);
+
+    // Band gone (a resize re-frames the same way): back as it was.
+    backdrop.setHeroBand!(null);
+    close(drawn(), natural, 'no band again');
+    assert.equal(stage.camera.zoom, 1);
+    assert.ok(!stage.camera.view?.enabled, 'no view offset left behind');
+    backdrop.dispose();
   });
 });

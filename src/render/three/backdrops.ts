@@ -4,22 +4,28 @@
  */
 
 import * as THREE from 'three';
-import { HERO_BOX_3D, HERO_CARGO, HERO_DEPTH_3D, HERO_LEVEL, heroSway } from '../hero';
-import type { HeroBox } from '../hero';
+import {
+  HERO_BOX_3D,
+  HERO_CARGO,
+  HERO_DEPTH_3D,
+  HERO_LEVEL,
+  fitHero,
+  heroSway,
+  sameBand,
+  swayEnvelope,
+} from '../hero';
+import type { HeroBand, HeroBox } from '../hero';
 import type { Backdrop, ScreenRect } from '../Stage';
 import type { ThreeStage } from './ThreeStage';
 import { Warehouse } from './Warehouse';
 import { Cargo3D } from './world/Cargo3D';
 import { Rack3D } from './world/Rack3D';
 
-/** Title screen: a lit hero rack swaying gently in the warehouse. */
+/**
+ * Title screen: a lit hero rack swaying gently in the warehouse, fitted into
+ * the band the menu's text and buttons leave free (setHeroBand).
+ */
 export function menuBackdrop(stage: ThreeStage): Backdrop {
-  // The hero rack sits a little lower so the wordmark has the top third.
-  stage.frame(2, 6, (camera) => {
-    camera.position.y += 0.4;
-    camera.lookAt(0, 0.7, 0);
-  });
-
   const rack = new Rack3D(stage.tweens, HERO_LEVEL, stage.scene);
   const warehouse = new Warehouse({ rackHalfWidth: rack.halfWidth });
   stage.scene.add(warehouse.group);
@@ -45,6 +51,33 @@ export function menuBackdrop(stage: ThreeStage): Backdrop {
     sway(dt);
   });
   let disposed = false;
+  let band: HeroBand | null = null;
+  const envelope = swayEnvelope(HERO_BOX_3D);
+
+  // Run by the stage on every framing (now, on resize, on a new band). The
+  // hero rack sits a little lower so the wordmark has the top third. Then
+  // the picture as a whole is scaled and moved - camera zoom about the
+  // screen centre plus a view offset, so the image is the same, only framed
+  // differently - to put the rack where fitHero says; or the rack is hidden.
+  stage.frame(2, 6, (camera) => {
+    camera.position.y += 0.4;
+    camera.lookAt(0, 0.7, 0);
+    if (disposed) return;
+    const natural = projectBox(stage, envelope);
+    const fit = fitHero(natural, band);
+    rack.group.visible = fit !== null;
+    // Hidden, or where it would be anyway (tall phones): the plain lens.
+    if (!fit || (Math.abs(fit.w - natural.w) < 0.01 && Math.abs(fit.y - natural.y) < 0.01)) return;
+    const { width, height } = stage.viewSize;
+    const k = fit.w / natural.w;
+    // Where the zoom alone puts the natural box's corner; the offset carries it onto the fit.
+    const zx = width / 2 + (natural.x - width / 2) * k;
+    const zy = height / 2 + (natural.y - height / 2) * k;
+    camera.zoom = k;
+    camera.setViewOffset(width, height, zx - fit.x, zy - fit.y, width, height);
+    camera.updateProjectionMatrix();
+  });
+
   // Where the rack is drawn now, for tests: its box at the current sway, through the camera.
   const offProbe = stage.reportHero(() => {
     if (disposed || !rack.group.visible) return null;
@@ -53,6 +86,11 @@ export function menuBackdrop(stage: ThreeStage): Backdrop {
   });
 
   return {
+    setHeroBand(next: HeroBand | null) {
+      if (disposed || sameBand(next, band)) return;
+      band = next;
+      stage.reframe();
+    },
     dispose() {
       if (disposed) return;
       disposed = true;

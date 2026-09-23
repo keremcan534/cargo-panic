@@ -338,13 +338,23 @@ export class ThreeStage implements Stage {
 
   /**
    * Re-aims the camera at a rack of this shape, then applies `adjust` (a
-   * backdrop's own offset). Both are re-applied on resize.
+   * backdrop's own offset). Both are re-applied on resize. Every framing
+   * starts from a plain lens: no zoom or view offset an earlier `adjust`
+   * (the title screen's) may have set.
    */
   frame(tiers: number, maxSlots: number, adjust?: FramingAdjust) {
     this.framing = { tiers, maxSlots, adjust };
+    this.camera.zoom = 1;
+    this.camera.clearViewOffset();
     applyFraming(this.camera, this.aspect(), tiers, maxSlots);
     adjust?.(this.camera);
     this.basePos.copy(this.camera.position);
+  }
+
+  /** Applies the current framing again (its `adjust` has new inputs). */
+  reframe() {
+    if (this.disposed) return;
+    this.frame(this.framing.tiers, this.framing.maxSlots, this.framing.adjust);
   }
 
   /** Runs `fn` every frame just before drawing, until the returned function is called. */
@@ -366,7 +376,7 @@ export class ThreeStage implements Stage {
     this.gl.setSize(w, h);
     this.composer.setSize(w, h);
     this.bloom.setSize(w, h);
-    this.frame(this.framing.tiers, this.framing.maxSlots, this.framing.adjust);
+    this.reframe();
   };
 
   private applyShake(now: number) {

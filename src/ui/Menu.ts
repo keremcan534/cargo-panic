@@ -21,7 +21,9 @@ import { haptics } from '../game/systems/Haptics';
 import { progress } from '../game/systems/ProgressManager';
 import { formatScore, newRun, seedFromUrl } from '../game/systems/RunManager';
 import { t } from '../i18n';
+import type { HeroBand } from '../render/hero';
 import type { Backdrop, Stage } from '../render/Stage';
+import { watchHeroBand } from './heroBand';
 import { levelSelectScreen } from './LevelSelect';
 import { ConfirmPanel, SettingsPanel } from './Panels';
 import { showSaveMessage, storageWarning } from './SaveNotices';
@@ -93,6 +95,9 @@ export function menuScreen(ctx: AppContext, opts: MenuOptions = {}): Screen {
   let settings: SettingsPanel | null = null;
   let question: ConfirmPanel | null = null;
   let offHost: (() => void) | undefined;
+  /** The band between the tagline and the buttons, for the backdrop's hero rack (heroBand.ts). */
+  let heroBand: HeroBand | null = null;
+  let offBand: (() => void) | undefined;
   /** A screen change is on its way: a second tap starts nothing more. */
   let leaving = false;
 
@@ -240,11 +245,16 @@ export function menuScreen(ctx: AppContext, opts: MenuOptions = {}): Screen {
         ]),
       ]);
       uiRoot().append(root);
+      offBand = watchHeroBand(root, root.querySelector('.tagline')!, root.querySelector('.bottom')!, (band) => {
+        heroBand = band;
+        backdrop?.setHeroBand?.(band);
+      });
       if (opts.settings) openSettings();
       fadeIn();
     },
     exit() {
       offHost?.();
+      offBand?.();
       settings?.dismissNow();
       settings = null;
       question?.dismissNow();
@@ -279,6 +289,7 @@ export function menuScreen(ctx: AppContext, opts: MenuOptions = {}): Screen {
     },
     attachStage(stage: Stage) {
       backdrop = stage.showBackdrop('menu');
+      backdrop.setHeroBand?.(heroBand);
     },
   };
 }
