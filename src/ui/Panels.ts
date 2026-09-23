@@ -199,6 +199,8 @@ export interface PauseOptions {
   onToggleSound: () => boolean;
   onToggleHaptics: () => boolean;
   onResume: () => void;
+  /** Runs as the restart button is pressed, before the panel's close (onRestart runs after it). */
+  onRestartPress?: () => void;
   onRestart: () => void;
   onExit: () => void;
   restartLabel: string;
@@ -269,7 +271,11 @@ export class PausePanel extends Modal {
     }
     const resume = btn(t('pause.resume'), () => this.tryResume(), 'primary', 'lg');
     resume.dataset.role = 'resume';
-    const restart = btn(opts.restartLabel, () => idle() && this.close(opts.onRestart));
+    const restart = btn(opts.restartLabel, () => {
+      if (!idle() || !this.open) return;
+      opts.onRestartPress?.();
+      this.close(opts.onRestart);
+    });
     restart.dataset.role = 'restart';
     const exit = btn(opts.exitLabel, () => idle() && this.close(opts.onExit), 'ghost');
     exit.dataset.role = 'exit';
