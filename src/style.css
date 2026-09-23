@@ -35,6 +35,8 @@ html, body {
 #ui-root { position: absolute; inset: 0; pointer-events: none; }
 #ui-root > * { pointer-events: none; }
 #ui-root button, #ui-root .tappable { pointer-events: auto; }
+/* A modal blocks what is under it (HUD buttons, the guide's SKIP): `#ui-root > *` would otherwise win over .modal. */
+#ui-root > .modal { pointer-events: auto; }
 
 /* Pre-render splash so the first paint is never a black void. */
 #boot-splash {
@@ -365,7 +367,7 @@ html, body {
 
 /* ------------------------------------------------ first-session guide */
 /* Takes no input except SKIP: the board underneath plays as without it. */
-/* No z-index: appended after the HUD it sits above; modals opened later (pause, guide) cover it. */
+/* No z-index: appended after the HUD it sits above; modals opened later (pause, guide) cover and block it. */
 .tutorial { position: absolute; inset: 0; pointer-events: none; }
 .tutorial[hidden] { display: none; }
 .tutorial .tut-card {
