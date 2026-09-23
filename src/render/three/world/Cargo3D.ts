@@ -44,6 +44,7 @@ export class Cargo3D {
   private frontCracked?: THREE.MeshStandardMaterial;
   private hintStop?: () => void;
   private crackStop?: () => void;
+  private crackStill = false;
   /** Back-face shell a little larger than the box: the selection / spotlight outline. */
   private rim: THREE.Mesh;
   private rimMat: THREE.MeshBasicMaterial;
@@ -125,11 +126,13 @@ export class Cargo3D {
     });
   }
 
-  /** Fragile cargo under load: cracked face and (unless `still`) a nervous judder. */
+  /** Fragile cargo under load: cracked face and (unless `still`) a nervous judder. Restyles if `still` changed. */
   setCracking(on: boolean, still = false) {
     if (!this.frontCracked) return;
-    if (on === !!this.crackStop) return;
+    if (on === !!this.crackStop && (!on || still === this.crackStill)) return;
     if (on) {
+      this.crackStop?.();
+      this.crackStill = still;
       this.mats[4] = this.frontCracked;
       this.body.material = this.mats;
       const rot = this.body.rotation;
@@ -194,7 +197,7 @@ export class Cargo3D {
     this.rimKind = kind;
     this.rimMat.color.setHex(kind === 'select' ? RIM_SELECT : RIM_SPOT);
     this.rimMat.opacity = 0.95;
-    this.rim.visible = true;
+    this.rim.visible = this.opacity > 0.05;
     if (still) return;
     this.rimMat.opacity = 0.55;
     this.rimStop = this.tweens.add(this.rimMat, { opacity: 1 }, {
@@ -215,8 +218,9 @@ export class Cargo3D {
   setOpacity(a: number) {
     for (const m of this.mats) m.opacity = a;
     if (this.frontCracked) this.frontCracked.opacity = a;
-    // A spotlit package that shattered keeps its outline where it was.
-    this.rim.visible = this.rimKind === 'spot' || (this.rimKind !== null && a > 0.05);
+    // The rim reads as an outline only because the box covers its middle: once the box has faded
+    // (a shattered crate) it would be a solid block, so it goes too; a highlight's marker still points there.
+    this.rim.visible = this.rimKind !== null && a > 0.05;
   }
 
   get opacity() {

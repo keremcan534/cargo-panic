@@ -31,21 +31,25 @@ export function menuBackdrop(stage: ThreeStage): Backdrop {
     rack.group.add(c.mesh);
     cargo.push(c);
   }
-  const stopSway = stage.tweens.add(rack.group.rotation, { z: 0.02 }, {
-    ms: 3200,
-    yoyo: true,
-    repeat: -1,
-    ease: Easing.sineInOut,
+  // Same sway as the 2D title: -0.02 <-> 0.02 rad over 3.2 s, eased; none under reduced motion
+  // (read every frame, so the setting applies at once).
+  let t = 0;
+  const sway = (dt: number) => {
+    t += dt;
+    const phase = (t / 3200) % 2;
+    rack.group.rotation.z = stage.reducedMotion ? 0 : -0.02 + 0.04 * Easing.sineInOut(phase < 1 ? phase : 2 - phase);
+  };
+  sway(0);
+  const offTick = stage.onRender((dt) => {
+    warehouse.tick(dt);
+    sway(dt);
   });
-  rack.group.rotation.z = -0.02;
-  const offTick = stage.onRender((dt) => warehouse.tick(dt));
 
   let disposed = false;
   return {
     dispose() {
       if (disposed) return;
       disposed = true;
-      stopSway();
       offTick();
       for (const c of cargo) c.dispose();
       rack.dispose();

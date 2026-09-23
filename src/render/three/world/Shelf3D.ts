@@ -40,6 +40,7 @@ export class Shelf3D {
   private glow: THREE.Mesh;
   private glowMat: THREE.MeshBasicMaterial;
   private glowStop?: () => void;
+  private glowStill = false;
   /** Gold outline around the plank: a loss reason pointing at this shelf. */
   private spot: THREE.Mesh;
   private spotMat: THREE.MeshBasicMaterial;
@@ -213,10 +214,12 @@ export class Shelf3D {
     this.labelTex.needsUpdate = true;
   }
 
-  /** Red glow behind the plank; `still` (reduced motion) holds it steady instead of pulsing. */
+  /** Red glow behind the plank; `still` (reduced motion) holds it steady instead of pulsing. Restyles if `still` changed. */
   setOverloaded(on: boolean, still = false) {
-    if (on === !!this.glowStop) return;
+    if (on === !!this.glowStop && (!on || still === this.glowStill)) return;
     if (on) {
+      this.glowStop?.();
+      this.glowStill = still;
       const stop = still
         ? () => undefined
         : this.tweens.add(this.glowMat, { opacity: 0.55 }, { ms: 300, yoyo: true, repeat: -1, ease: Easing.sineInOut });

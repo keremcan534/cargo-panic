@@ -67,6 +67,8 @@ export class ThreeGameView implements GameView {
   private hintLeft = 0;
   /** Tap-selected package. */
   private selected: Cargo3D | null = null;
+  /** Reduced motion as the running effects were started with (they restyle when it changes). */
+  private styledStill = false;
   /** What highlight() points at, and the bobbing marker above it. */
   private spot: ViewHighlight = null;
   private marker: THREE.Mesh | null = null;
@@ -114,6 +116,7 @@ export class ThreeGameView implements GameView {
     }
     for (const p of board.placements) this.placeInstant(this.cargo[p.id], p.shelf, p.slot);
     this.mounted = true;
+    this.styledStill = this.still;
     this.refreshQueue(true);
     this.applyBoardVisuals();
   }
@@ -128,6 +131,7 @@ export class ThreeGameView implements GameView {
 
   update(dtMs: number) {
     if (!this.mounted) return;
+    if (this.still !== this.styledStill) this.restyleMotion();
     this.time += dtMs;
     this.rack.tick(dtMs, this.still);
     this.conveyor.tick(dtMs, this.still);
@@ -166,6 +170,19 @@ export class ThreeGameView implements GameView {
       this.warehouse.dispose();
     }
     this.mounted = false;
+  }
+
+  /**
+   * Reduced motion was switched mid-shipment (pause panel, or the system
+   * setting): the judder, glow and rim pulses already running restart in the
+   * new style. Per-frame motion (wobble, belt, marker bob) reads it anyway.
+   */
+  private restyleMotion() {
+    this.styledStill = this.still;
+    this.applyBoardVisuals();
+    const sel = this.selected;
+    sel?.setSelected(true, this.still, sel.state === 'placed');
+    if (this.spot) this.highlight(this.spot);
   }
 
   private after(ms: number, fn: () => void) {
