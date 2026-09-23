@@ -21,6 +21,13 @@ export const en = {
   'menu.endlessBestPrevious': 'PREVIOUS RULES: BEST {score}  -  WAVE {wave}',
   'menu.endlessPitch': 'PROCEDURAL WAVES - ONE MISTAKE ENDS A RUN',
   'menu.sound': 'Sound',
+  // PLAY next to a CONTINUE button: it starts this level fresh.
+  'menu.playLevel': 'PLAY LEVEL {n}',
+  'menu.newShiftTitle': 'END YOUR SHIFT?',
+  'menu.newShiftBody':
+    'Your shift is on wave {wave} with {score} points. Starting a new game ends it, and its score is not kept.',
+  'menu.newShiftConfirm': 'START NEW GAME',
+  'menu.newShiftCancel': 'KEEP MY SHIFT',
 
   // --- level select -----------------------------------------------------------
   'levels.title': 'SELECT LEVEL',

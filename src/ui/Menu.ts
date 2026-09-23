@@ -4,9 +4,16 @@
  * The settings button (top right, next to sound) shows the view drawing now
  * - "2D" or "3D" - next to a gear, so the 2D option is one tap away. It
  * opens the settings panel: VIEW, 3D QUALITY, sound and vibration.
+ *
+ * With a game in progress in the save, the first button is CONTINUE: the
+ * saved level or shift, rebuilt paused (activePlay.resumeActive). PLAY and
+ * ENDLESS still start fresh, which replaces the saved game; if that would
+ * throw away a shift with points on it, the player is asked first. A saved
+ * game that cannot be rebuilt is dropped with a message - records stay.
  */
 
-import type { AppContext, Screen } from '../app/Router';
+import { resumeActive } from '../app/activePlay';
+import type { AppContext, Screen, ScreenFactory } from '../app/Router';
 import { gameScreen } from '../app/Game';
 import { TOTAL_LEVELS } from '../game/levels/levels';
 import { audio } from '../game/systems/AudioManager';
@@ -16,9 +23,37 @@ import { formatScore, newRun, seedFromUrl } from '../game/systems/RunManager';
 import { t } from '../i18n';
 import type { Backdrop, Stage } from '../render/Stage';
 import { levelSelectScreen } from './LevelSelect';
-import { SettingsPanel } from './Panels';
+import { ConfirmPanel, SettingsPanel } from './Panels';
+import { showSaveMessage, storageWarning } from './SaveNotices';
 import { viewControls } from './ViewSettings';
 import { btn, el, fadeIn, fadeOut, iconBtn, setIcon, uiRoot } from './dom';
+
+/**
+ * Starting a new game replaces the saved one. When that would end a shift
+ * that has points, ask first (`start` runs on yes); otherwise start at once.
+ * Returns the question panel, or null.
+ */
+export function confirmFreshStart(start: () => void): ConfirmPanel | null {
+  const active = progress.active;
+  if (active?.kind !== 'endless' || active.run.score <= 0) {
+    start();
+    return null;
+  }
+  return new ConfirmPanel({
+    title: t('menu.newShiftTitle'),
+    body: t('menu.newShiftBody', { wave: active.run.wave, score: formatScore(active.run.score) }),
+    confirm: t('menu.newShiftConfirm'),
+    cancel: t('menu.newShiftCancel'),
+    onConfirm: start,
+  });
+}
+
+/** The CONTINUE label for the saved game. */
+function continueLabel(): string | null {
+  const a = progress.active;
+  if (!a) return null;
+  return a.kind === 'campaign' ? t('menu.continueLevel', { n: a.levelId }) : t('menu.continueShift', { n: a.run.wave });
+}
 
 /**
  * Under PLAY: the current ruleset's Endless best once a run has been played
@@ -56,10 +91,41 @@ export function menuScreen(ctx: AppContext, opts: MenuOptions = {}): Screen {
   let root: HTMLElement;
   let backdrop: Backdrop | undefined;
   let settings: SettingsPanel | null = null;
+  let question: ConfirmPanel | null = null;
   let offHost: (() => void) | undefined;
+  /** A screen change is on its way: a second tap starts nothing more. */
+  let leaving = false;
 
-  const go = (factory: Parameters<typeof ctx.router.go>[0]) => {
+  const go = (factory: ScreenFactory) => {
+    if (leaving) return;
+    leaving = true;
     void fadeOut(200).then(() => ctx.router.go(factory));
+  };
+
+  /** A new game, after asking if it would end a shift with points. */
+  const startFresh = (factory: ScreenFactory) => {
+    if (leaving || question) return;
+    const asked = confirmFreshStart(() => go(factory));
+    question = asked;
+    asked?.onClosed(() => {
+      if (question === asked) question = null;
+    });
+  };
+
+  /** CONTINUE: the saved game rebuilt, paused. If it cannot be, say so and drop only that game. */
+  const resume = () => {
+    const active = progress.active;
+    if (leaving || !active) return;
+    const r = resumeActive(active);
+    if (r.ok) {
+      go((c) => gameScreen(c, { resume: r.shipment }));
+      return;
+    }
+    progress.setActive(null);
+    progress.flush();
+    showSaveMessage(t('save.resumeFailed'), 'resume-failed');
+    leaving = true;
+    ctx.router.go(menuScreen); // the menu again, without CONTINUE
   };
 
   return {
@@ -122,14 +188,32 @@ export function menuScreen(ctx: AppContext, opts: MenuOptions = {}): Screen {
       });
       offHost = ctx.host.onEvent(showMode);
 
+      const resumeLabel = continueLabel();
+      let cont: HTMLButtonElement | null = null;
+      if (resumeLabel) {
+        cont = btn(resumeLabel, resume, 'primary', 'lg');
+        cont.dataset.role = 'continue';
+      }
+      // With CONTINUE on screen, PLAY names the level it starts fresh.
+      const playLabel =
+        done === 0
+          ? t('menu.play')
+          : cont
+            ? t('menu.playLevel', { n: progress.unlocked })
+            : t('menu.continueLevel', { n: progress.unlocked });
       const play = btn(
-        done === 0 ? t('menu.play') : t('menu.continueLevel', { n: progress.unlocked }),
-        () => go((c) => gameScreen(c, { levelId: progress.unlocked })),
-        'primary',
-        'lg',
+        playLabel,
+        () => startFresh((c) => gameScreen(c, { levelId: progress.unlocked })),
+        cont ? 'secondary' : 'primary',
+        cont ? 'md' : 'lg',
       );
       play.dataset.role = 'play';
-      const endlessBtn = btn(t('menu.endless'), () => go((c) => gameScreen(c, { run: newRun(seedFromUrl()) })), 'gold', 'md');
+      const endlessBtn = btn(
+        t('menu.endless'),
+        () => startFresh((c) => gameScreen(c, { run: newRun(seedFromUrl()) })),
+        'gold',
+        'md',
+      );
       endlessBtn.dataset.role = 'endless';
       const levels = btn(t('menu.levels'), () => go(levelSelectScreen), 'secondary', 'md');
       levels.dataset.role = 'levels';
@@ -142,10 +226,12 @@ export function menuScreen(ctx: AppContext, opts: MenuOptions = {}): Screen {
           el('div', { class: 'tagline', text: t('menu.tagline') }),
         ]),
         el('div', { class: 'bottom' }, [
+          storageWarning(),
           el('div', { class: 'chip' }, [
             el('span', { class: 'g', text: t('menu.starsChip', { stars, total: TOTAL_LEVELS * 3 }) }),
             el('span', { class: 'd', text: t('menu.clearedChip', { done, total: TOTAL_LEVELS }) }),
           ]),
+          cont,
           play,
           ...endlessCaptions(),
           endlessBtn,
@@ -161,9 +247,26 @@ export function menuScreen(ctx: AppContext, opts: MenuOptions = {}): Screen {
       offHost?.();
       settings?.dismissNow();
       settings = null;
+      question?.dismissNow();
+      question = null;
       backdrop?.dispose();
       backdrop = undefined;
       root.remove();
+    },
+    /** Android back: closes an open panel; on the bare title screen the app may exit. */
+    back() {
+      if (question) {
+        question.cancel();
+        question = null;
+        return true;
+      }
+      if (settings) {
+        const panel = settings;
+        settings = null;
+        panel.close();
+        return true;
+      }
+      return false;
     },
     /** Rebuilt in the new language, with the settings panel (where the language was picked) open. */
     languageChanged() {
