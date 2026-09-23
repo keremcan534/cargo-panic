@@ -21,7 +21,7 @@ import { t } from './i18n';
 import { applyLanguage, effectiveReducedMotion } from './app/Preferences';
 import { watchLifecycle } from './platform/lifecycle';
 import type { RenderMode } from './render/GameView';
-import type { StageOptions } from './render/Stage';
+import type { ScreenRect, StageOptions } from './render/Stage';
 import type { ThreeStage } from './render/three/ThreeStage';
 import { showNotice } from './ui/Notice';
 import { showBootNotices, watchSaveHealth } from './ui/SaveNotices';
@@ -54,6 +54,8 @@ interface AppProbe {
   readonly reducedMotion: boolean | null;
   /** The app is in the background as far as the lifecycle is concerned. */
   readonly hidden: boolean;
+  /** Where the title screen's hero rack is drawn (CSS px), or null when it is not. */
+  readonly heroRect: ScreenRect | null;
 }
 
 declare global {
@@ -129,6 +131,9 @@ async function boot() {
       },
       get hidden() {
         return app.hidden;
+      },
+      get heroRect() {
+        return host.stageOrNull?.heroRect?.() ?? null;
       },
     });
     // GPU resource counts, to catch leaks across screens (3D only; 2D reports the mode and frames).

@@ -51,11 +51,18 @@ class FakeStage {
   reducedMotion = false;
   particles = { emit() {} };
   updaters = new Set<(dtMs: number) => void>();
+  heroProbe: (() => unknown) | null = null;
   frame() {}
   shake() {}
   onRender(fn: (dtMs: number) => void) {
     this.updaters.add(fn);
     return () => this.updaters.delete(fn);
+  }
+  reportHero(probe: () => unknown) {
+    this.heroProbe = probe;
+    return () => {
+      if (this.heroProbe === probe) this.heroProbe = null;
+    };
   }
   get asStage() {
     return this as unknown as ThreeStage;
@@ -187,5 +194,6 @@ describe('3D title backdrop', () => {
 
     backdrop.dispose();
     assert.equal(stage.updaters.size, 0, 'the per-frame hook goes with it');
+    assert.equal(stage.heroProbe, null, 'and so does its test probe');
   });
 });

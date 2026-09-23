@@ -14,8 +14,8 @@
 
 import { W3 } from '../../game/config';
 import type { PackageType } from '../../game/levels/types';
-import { HERO_CARGO, HERO_LEVEL, heroSway } from '../hero';
-import type { Backdrop } from '../Stage';
+import { HERO_BOX_2D, HERO_CARGO, HERO_LEVEL, heroSway, rotatedCorners } from '../hero';
+import type { Backdrop, ScreenRect } from '../Stage';
 import { rackHalfWidth, rackTopY } from '../layout';
 import { cargoCentreY, layout2d, slotCentreX } from './layout2d';
 import { RackArt2D } from './rack2d';
@@ -257,6 +257,8 @@ export class MenuBackdrop2D implements Backdrop, Layer2D {
   private originX = 0;
   private floorY = 0;
   private t = 0;
+  /** The lean of the last frame drawn. */
+  private tilt = 0;
   private disposed = false;
 
   constructor(private host: Host2D) {
@@ -296,6 +298,7 @@ export class MenuBackdrop2D implements Backdrop, Layer2D {
     ctx.drawImage(this.bg, 0, 0, this.host.width, this.host.height);
     // Same sway as the 3D title (hero.ts); none under reduced motion.
     const tilt = this.host.reducedMotion ? 0 : heroSway(this.t);
+    this.tilt = tilt;
     const s = rack.s;
     ctx.save();
     ctx.translate(this.originX, this.floorY);
@@ -312,6 +315,24 @@ export class MenuBackdrop2D implements Backdrop, Layer2D {
       ctx.drawImage(spr.canvas, cx - spr.w / 2 - spr.pad, cy - spr.h / 2 - spr.pad, spr.w + spr.pad * 2, spr.h + spr.pad * 2);
     }
     ctx.restore();
+  }
+
+  /** Where the rack was last drawn (Stage.heroRect): its box at that frame's sway. */
+  heroRect(): ScreenRect | null {
+    const rack = this.rack;
+    if (this.disposed || !rack) return null;
+    const s = rack.s;
+    let x0 = Infinity;
+    let x1 = -Infinity;
+    let y0 = Infinity;
+    let y1 = -Infinity;
+    for (const p of rotatedCorners(HERO_BOX_2D, this.tilt)) {
+      x0 = Math.min(x0, this.originX + p.x * s);
+      x1 = Math.max(x1, this.originX + p.x * s);
+      y0 = Math.min(y0, this.floorY - p.y * s);
+      y1 = Math.max(y1, this.floorY - p.y * s);
+    }
+    return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
   }
 
   private free() {

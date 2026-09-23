@@ -54,6 +54,12 @@ export interface Stage {
   createGameView(): GameView;
   /** Decorative scene behind a menu screen. */
   showBackdrop(kind: BackdropKind): Backdrop;
+  /**
+   * Where the title screen's hero rack is drawn right now (the projection of
+   * its frame, feet and labels at the current sway), or null when no menu
+   * backdrop is showing it. For tests and debugging.
+   */
+  heroRect?(): ScreenRect | null;
 
   setReducedMotion(on: boolean): void;
   /** 3D quality profile; the 2D stage ignores it. */

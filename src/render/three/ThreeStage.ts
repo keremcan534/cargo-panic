@@ -21,7 +21,15 @@ import type { GameView } from '../GameView';
 import { QualityGovernor } from '../quality';
 import type { QualityProfile } from '../quality';
 import { StageInitError } from '../Stage';
-import type { Backdrop, BackdropKind, QualityPref, Stage, StageContextEvent, StageOptions } from '../Stage';
+import type {
+  Backdrop,
+  BackdropKind,
+  QualityPref,
+  ScreenRect,
+  Stage,
+  StageContextEvent,
+  StageOptions,
+} from '../Stage';
 import { Tweens } from '../Tween';
 import { levelsBackdrop, menuBackdrop } from './backdrops';
 import { disposeTree } from './dispose';
@@ -49,6 +57,8 @@ export class ThreeStage implements Stage {
   private bloom: UnrealBloomPass;
   private updaters = new Set<(dtMs: number) => void>();
   private contextListeners = new Set<(e: StageContextEvent) => void>();
+  /** Set by the title backdrop while it lives (see heroRect). */
+  private heroProbe: (() => ScreenRect | null) | null = null;
 
   private framing: { tiers: number; maxSlots: number; adjust?: FramingAdjust } = { tiers: 2, maxSlots: 5 };
   private shakeAmp = 0;
@@ -156,6 +166,11 @@ export class ThreeStage implements Stage {
     return Math.max(0.2, this.parent.clientWidth / Math.max(1, this.parent.clientHeight));
   }
 
+  /** The canvas size in CSS pixels. Reads layout: for resize-time work, not every frame. */
+  get viewSize(): { width: number; height: number } {
+    return { width: this.parent.clientWidth, height: this.parent.clientHeight };
+  }
+
   // ==========================================================================
   // Stage
   // ==========================================================================
@@ -166,6 +181,18 @@ export class ThreeStage implements Stage {
 
   showBackdrop(kind: BackdropKind): Backdrop {
     return kind === 'menu' ? menuBackdrop(this) : levelsBackdrop(this);
+  }
+
+  heroRect(): ScreenRect | null {
+    return this.heroProbe?.() ?? null;
+  }
+
+  /** The title backdrop reports its hero rack through `probe` until the returned function is called. */
+  reportHero(probe: () => ScreenRect | null): () => void {
+    this.heroProbe = probe;
+    return () => {
+      if (this.heroProbe === probe) this.heroProbe = null;
+    };
   }
 
   setReducedMotion(on: boolean) {
@@ -212,6 +239,7 @@ export class ThreeStage implements Stage {
     window.removeEventListener('resize', this.onResize);
     this.updaters.clear();
     this.contextListeners.clear();
+    this.heroProbe = null;
     this.tweens.clear();
     const canvas = this.gl.domElement;
     // forceContextLoss() below fires webglcontextlost: that one is ours, not news.
