@@ -267,6 +267,8 @@ test('Endless: a wave dealt while the page is hidden starts paused, with the awa
   await setVisibility(page, 'hidden');
   await expect(page.locator('.hud .title')).toHaveText('WAVE 2', { timeout: 60_000 });
   await expect(page.locator('.modal.pause [data-role="away"]')).toBeVisible();
+  // The wave's intro waits for RESUME: under the panel it could not be read.
+  expect(await page.locator('.tip').count()).toBe(0); // now, not after a retry: a tip goes by itself
   expect(await phase(page)).toBe('paused');
   expect(await page.evaluate(() => window.__cargoPanic!.pauseReasons)).toEqual(expect.arrayContaining(['hidden']));
   await letTimePass(page, 1500, 10);
@@ -276,6 +278,7 @@ test('Endless: a wave dealt while the page is hidden starts paused, with the awa
   expect(await phase(page)).toBe('paused');
   await resume(page);
   await expect.poll(() => phase(page)).toBe('play');
+  await expect(page.locator('.tip')).toContainText('Heavy crates from here on.');
   await expect.poll(async () => (await snapshot(page)).activeMs).toBeGreaterThan(0);
   expect(errors).toEqual([]);
   await context.close();
@@ -691,6 +694,61 @@ test('Escape in the game acknowledges a save message first, like the Android bac
   await page.keyboard.press('Escape');
   await expect.poll(() => phase(page)).toBe('play');
   await expect(page.locator('.modal.pause')).toHaveCount(0);
+  expect(errors).toEqual([]);
+  await context.close();
+});
+
+test('CONTINUE between Endless waves: the newly dealt wave gets its intro on RESUME; a restored wave does not', async ({
+  browser,
+  baseURL,
+}) => {
+  test.slow();
+  // Saved in the dispatch after wave 1: the run is on wave 2, which has not been dealt.
+  const run = { runId: 'between', seed: 12345, wave: 2, score: 500, stowed: 4, cleanWaves: 1, assisted: false, rewardedThrough: 1 };
+  const save = quietSave((d) => {
+    d.active = activeFrom(null, run);
+  });
+  const { context, page, errors } = await openWithSave(browser, baseURL, save, undefined, { viewport: PHONE });
+  await bootToMenu(page);
+  await continueFromMenu(page, 'CONTINUE SHIFT - WAVE 2');
+  const tip = page.locator('.tip');
+  expect(await tip.count()).toBe(0); // nothing under the away panel
+  await resume(page);
+  await expect(tip).toContainText('Heavy crates from here on.');
+  expect(await phase(page)).toBe('play');
+
+  // Mid-wave, the wave comes back restored: it already had its intro.
+  const first = getWave(12345, 2).solution[0];
+  await new Hand(page).drag(first.id, { shelf: first.shelf, slot: first.slot, slots: PACKAGE_SPECS[first.type].slots });
+  await expect.poll(() => placed(page)).toBe(1);
+  await page.reload();
+  await continueFromMenu(page, 'CONTINUE SHIFT - WAVE 2');
+  await resume(page);
+  await expect.poll(() => phase(page)).toBe('play');
+  expect(await tip.count()).toBe(0);
+  expect(errors).toEqual([]);
+  await context.close();
+});
+
+test('a cargo type first met in a game that opens paused is explained on RESUME, and only then marked seen', async ({
+  browser,
+  baseURL,
+}) => {
+  test.slow();
+  // A level 4 game (a heavy crate is the live package) by a player who has never had a cargo type explained.
+  const save = quietSave((d) => {
+    d.tutorial.seenCargo = [];
+    d.active = activeFrom(newShipment({ levelId: 4 }).session, null);
+  });
+  const { context, page, errors } = await openWithSave(browser, baseURL, save, undefined, { viewport: PHONE });
+  await bootToMenu(page);
+  await continueFromMenu(page, 'CONTINUE - LEVEL 4');
+  const explainer = page.locator('.tip.cargo-first');
+  expect(await explainer.count()).toBe(0);
+  expect((await stored(page))!.tutorial.seenCargo).toEqual([]);
+  await resume(page);
+  await expect(explainer).toHaveText('HEAVY CRATE - weight 5. It pushes the rack hard, and nothing fragile may sit below it.');
+  await expect.poll(async () => (await stored(page))!.tutorial.seenCargo).toEqual(['heavy']);
   expect(errors).toEqual([]);
   await context.close();
 });
