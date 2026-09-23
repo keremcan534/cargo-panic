@@ -176,6 +176,37 @@ test('2d: UNDO takes back the last move once, then shows it is spent', async ({ 
   await context.close();
 });
 
+test('2d: a refused UNDO says why and leaves the selected package selected', async ({ browser, baseURL }) => {
+  test.slow();
+  const { context, page, errors } = await openWithSave(browser, baseURL, quietSave('2d'));
+  await bootToMenu(page);
+  await startLevel(page, 4);
+  const undo = page.locator('[data-role="undo"]');
+
+  // Nothing to undo yet.
+  await selectCargo(page, 0);
+  await undo.dispatchEvent('click');
+  await expect(page.locator('.toast', { hasText: 'NOTHING TO UNDO' })).toHaveCount(1);
+  expect(await selection(page)).toBe(0);
+  expect(await held(page)).toBe(0);
+
+  // The undo spent.
+  await tapTarget(page, { shelf: 0, slot: 2, slots: 1 });
+  await expect.poll(() => placements(page)).toEqual([{ id: 0, type: 'heavy', shelf: 0, slot: 2 }]);
+  await undo.dispatchEvent('click');
+  await expect.poll(() => placements(page)).toEqual([]);
+  await selectCargo(page, 0);
+  await tapTarget(page, { shelf: 0, slot: 2, slots: 1 });
+  await expect.poll(() => placements(page)).toEqual([{ id: 0, type: 'heavy', shelf: 0, slot: 2 }]);
+  await selectCargo(page, 1);
+  await undo.dispatchEvent('click');
+  await expect(page.locator('.toast', { hasText: 'UNDO ALREADY USED THIS SHIPMENT' })).toHaveCount(1);
+  expect(await selection(page)).toBe(1);
+  expect(await held(page)).toBe(1);
+  expect(errors).toEqual([]);
+  await context.close();
+});
+
 // ---------------------------------------------------------------------------
 // Touch: one finger at a time, and a cancelled touch.
 // ---------------------------------------------------------------------------

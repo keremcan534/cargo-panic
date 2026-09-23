@@ -219,6 +219,48 @@ test('Turkish: a TR save shows the Turkish menu and a Turkish in-game hazard ban
   await context.close();
 });
 
+test('2d: LANGUAGE in the pause panel keeps UNDO available after RESUME, and a pick while the panel closes leaves none over play', async ({
+  browser,
+  baseURL,
+}) => {
+  test.slow();
+  const { context, page, errors } = await openWithSave(browser, baseURL, quietSave('2d'));
+  await bootToMenu(page);
+  await startLevel(page, 4);
+  const undo = page.locator('[data-role="undo"]');
+  const headline = page.locator('.modal .headline');
+  await tapPlace(page, 0, { shelf: 0, slot: 2, slots: 1 });
+  await expect(undo).toHaveAttribute('aria-disabled', 'false');
+
+  // Paused, TURKISH: the panel is rebuilt in Turkish, still paused; after RESUME the undo is still on offer.
+  await page.keyboard.press('Escape');
+  await expect(headline).toHaveText('PAUSED');
+  await page.locator('.modal [data-role="language"] [data-value="tr"]').dispatchEvent('click');
+  await expect(headline).toHaveText('DURAKLATILDI');
+  await expect(undo).toHaveText('GERİ AL');
+  await page.locator('.modal [data-role="resume"]').dispatchEvent('click');
+  await expect(page.locator('.modal')).toHaveCount(0);
+  expect((await snapshot(page)).phase).toBe('play');
+  await expect(undo).toHaveAttribute('aria-disabled', 'false');
+
+  // RESUME, then a language pick while the panel is still fading out: play goes on with no panel left over it.
+  await page.keyboard.press('Escape');
+  await expect(headline).toHaveText('DURAKLATILDI');
+  await page.evaluate(() => {
+    (document.querySelector('.modal [data-role="resume"]') as HTMLElement).click();
+    (document.querySelector('.modal [data-role="language"] [data-value="en"]') as HTMLElement).click();
+  });
+  await expect(page.locator('.hud .title')).toHaveText('LEVEL 4');
+  await expect(page.locator('.modal')).toHaveCount(0);
+  await frames(page, 10);
+  await expect(page.locator('.modal')).toHaveCount(0);
+  expect(await page.evaluate(() => window.__cargoPanic!.pauseReasons)).toEqual([]);
+  expect((await snapshot(page)).phase).toBe('play');
+  await expect(undo).toHaveAttribute('aria-disabled', 'false');
+  expect(errors).toEqual([]);
+  await context.close();
+});
+
 // ---------------------------------------------------------------------------
 // First-session guide.
 // ---------------------------------------------------------------------------

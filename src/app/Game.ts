@@ -393,7 +393,8 @@ class GameController implements Screen {
     const belt = this.beltZone.querySelector('span');
     if (belt) belt.textContent = t('hud.beltZone');
     this.tutorial?.relabel();
-    if (this.pausePanel) {
+    // A panel already closing (RESUME, RESTART, EXIT) finishes its own close and resume.
+    if (this.pausePanel?.open) {
       this.pausePanel.dismissNow();
       this.pausePanel = null;
       this.openPause();
@@ -653,13 +654,13 @@ class GameController implements Screen {
 
   private onHint() {
     if (this.session.phase !== 'play') return;
-    // A second finger on HINT mid-drag: the package goes back first, and a
-    // selection is let go (the session refuses hints while one is held).
-    this.interaction.reset();
     if (this.session.queue.length === 0) {
       this.hud.toast(t('toast.allStowed'), 'info');
       return;
     }
+    // A second finger on HINT mid-drag: the package goes back first, and a
+    // selection is let go (the session refuses hints while one is held).
+    this.interaction.reset();
     requestHint(() => this.applyHint());
   }
 
@@ -685,13 +686,15 @@ class GameController implements Screen {
   // ==========================================================================
 
   /**
-   * UNDO is shown available while the shipment is on, the free undo is
-   * unused and there is a committed move to take back. A package in hand or
-   * selected does not grey it out: pressing it puts that package back first.
+   * UNDO is shown available while the shipment is on (a pause does not end
+   * it), the free undo is unused and there is a committed move to take back.
+   * A package in hand or selected does not grey it out: pressing it puts that
+   * package back first.
    */
   private refreshUndo() {
     const snap = this.session.snapshot();
-    const ready = snap.phase === 'play' && snap.undoLeft > 0 && snap.undo !== null;
+    const on = snap.phase === 'play' || snap.phase === 'paused';
+    const ready = on && snap.undoLeft > 0 && snap.undo !== null;
     this.undoBtn.classList.toggle('off', !ready);
     this.undoBtn.setAttribute('aria-disabled', String(!ready));
   }
@@ -699,19 +702,22 @@ class GameController implements Screen {
   private onUndo() {
     const s = this.session;
     if (s.phase !== 'play') return;
-    // A second finger on UNDO mid-drag: the package goes back and a selection is let go first.
-    this.interaction.reset();
     if (s.undoLeft <= 0) {
       this.hud.toast(t('toast.undoUsed'), 'info');
-    } else if (!s.undo()) {
+    } else if (s.snapshot().undo === null) {
       this.hud.toast(t('toast.nothingToUndo'), 'info');
     } else {
-      this.clearHint();
-      // sync() moves every package to its restored place with a short, quiet tween.
-      this.refresh();
-      this.hud.toast(t('toast.undone'), 'info');
-      audio.pickup();
-      haptics.tap();
+      // A second finger on UNDO mid-drag: the package goes back and a selection is let go
+      // first (undo needs empty hands). A refused press above leaves them alone.
+      this.interaction.reset();
+      if (s.undo()) {
+        this.clearHint();
+        // sync() moves every package to its restored place with a short, quiet tween.
+        this.refresh();
+        this.hud.toast(t('toast.undone'), 'info');
+        audio.pickup();
+        haptics.tap();
+      }
     }
     this.refreshUndo();
   }
