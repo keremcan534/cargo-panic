@@ -1,7 +1,8 @@
 /**
- * Modal overlays: level cleared, level failed, pause, settings, cargo guide,
- * run over - plus the non-blocking wave-clear, coaching and suggestion
- * cards. All DOM; every string comes from the text dictionary (src/i18n).
+ * Modal overlays: level cleared, level failed, pause, settings, a yes / no
+ * question, cargo guide, run over - plus the non-blocking wave-clear,
+ * coaching and suggestion cards. All DOM; every string comes from the text
+ * dictionary (src/i18n).
  */
 
 import { PACKAGE_SPECS } from '../game/levels/types';
