@@ -16,6 +16,7 @@ import { resumeActive } from '../app/activePlay';
 import type { AppContext, Screen, ScreenFactory } from '../app/Router';
 import { gameScreen } from '../app/Game';
 import { TOTAL_LEVELS } from '../game/levels/levels';
+import type { ActivePlay } from '../game/save/schema';
 import { audio } from '../game/systems/AudioManager';
 import { haptics } from '../game/systems/Haptics';
 import { progress } from '../game/systems/ProgressManager';
@@ -46,6 +47,23 @@ export function confirmFreshStart(start: () => void): ConfirmPanel | null {
     cancel: t('menu.newShiftCancel'),
     onConfirm: start,
   });
+}
+
+/**
+ * CONTINUE: the saved game rebuilt, paused, and `go`ne to. If it cannot be
+ * rebuilt, the player is told and only that game is dropped (records stay);
+ * then it returns false and the caller shows its screen again, without it.
+ */
+export function continueGame(active: ActivePlay, go: (factory: ScreenFactory) => void): boolean {
+  const r = resumeActive(active);
+  if (r.ok) {
+    go((c) => gameScreen(c, { resume: r.shipment }));
+    return true;
+  }
+  progress.setActive(null);
+  progress.flush();
+  showSaveMessage(t('save.resumeFailed'), 'resume-failed');
+  return false;
 }
 
 /** The CONTINUE label for the saved game. */
@@ -115,15 +133,7 @@ export function menuScreen(ctx: AppContext, opts: MenuOptions = {}): Screen {
   /** CONTINUE: the saved game rebuilt, paused. If it cannot be, say so and drop only that game. */
   const resume = () => {
     const active = progress.active;
-    if (leaving || !active) return;
-    const r = resumeActive(active);
-    if (r.ok) {
-      go((c) => gameScreen(c, { resume: r.shipment }));
-      return;
-    }
-    progress.setActive(null);
-    progress.flush();
-    showSaveMessage(t('save.resumeFailed'), 'resume-failed');
+    if (leaving || !active || continueGame(active, go)) return;
     leaving = true;
     ctx.router.go(menuScreen); // the menu again, without CONTINUE
   };

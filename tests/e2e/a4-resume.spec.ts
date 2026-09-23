@@ -752,3 +752,95 @@ test('a cargo type first met in a game that opens paused is explained on RESUME,
   expect(errors).toEqual([]);
   await context.close();
 });
+
+test('level select: CONTINUE - LEVEL N resumes the saved game of that level; with another game saved the button says it starts fresh', async ({
+  browser,
+  baseURL,
+}) => {
+  test.slow();
+  // Levels 1-4 cleared; a level 5 game in progress, one heavy crate on the bottom shelf.
+  const cleared = (d: SaveData) => {
+    d.campaign.stars = { 1: 3, 2: 3, 3: 3, 4: 3 };
+  };
+  const level5 = newShipment({ levelId: 5 });
+  expect(level5.session.move(0, 0, 2).ok).toBe(true);
+  const save = quietSave((d) => {
+    cleared(d);
+    d.active = activeFrom(level5.session, null);
+  }, 5);
+  const { context, page, errors } = await openWithSave(browser, baseURL, save, undefined, { viewport: PHONE });
+  await bootToMenu(page);
+  await page.locator('.menu [data-role="levels"]').dispatchEvent('click');
+  const foot = page.locator('.screen.levels .foot button');
+  await expect(foot).toHaveText('CONTINUE - LEVEL 5', { timeout: 60_000 });
+  await expect(foot).toHaveAttribute('data-role', 'continue');
+  await foot.dispatchEvent('click');
+  // The saved game, paused - not level 5 dealt again over it.
+  await expect(page.locator('.modal.pause [data-role="away"]')).toBeVisible({ timeout: 60_000 });
+  await page.waitForFunction(() => !!window.__cargoPanic);
+  expect(await placed(page)).toBe(1);
+  expect(await phase(page)).toBe('paused');
+
+  // A level 2 replay is the saved game now: the button starts level 5 fresh, and says so.
+  await page.locator('.modal.pause [data-role="exit"]').dispatchEvent('click');
+  await page.locator('[data-level="2"]').dispatchEvent('click');
+  await expect(page.locator('.hud .title')).toHaveText('LEVEL 2', { timeout: 60_000 });
+  await expect.poll(async () => (await stored(page))?.active).toMatchObject({ kind: 'campaign', levelId: 2 });
+  await pause(page);
+  await page.locator('.modal.pause [data-role="exit"]').dispatchEvent('click');
+  await expect(foot).toHaveText('PLAY LEVEL 5', { timeout: 60_000 });
+  await expect(foot).toHaveAttribute('data-role', 'play');
+  await foot.dispatchEvent('click');
+  await expect(page.locator('.hud .title')).toHaveText('LEVEL 5', { timeout: 60_000 });
+  await page.waitForFunction(() => !!window.__cargoPanic);
+  expect(await placed(page)).toBe(0);
+  expect(await phase(page)).toBe('play');
+  await context.close();
+
+  // A shift with points saved: PLAY LEVEL 5 asks first, like the menu; KEEP MY SHIFT keeps it.
+  const shift = quietSave((d) => {
+    cleared(d);
+    d.active = activeFrom(null, { runId: 'kept', seed: 12345, wave: 3, score: 1500, stowed: 9, cleanWaves: 1, assisted: false, rewardedThrough: 2 });
+  }, 5);
+  const second = await openWithSave(browser, baseURL, shift, undefined, { viewport: PHONE });
+  await bootToMenu(second.page);
+  await second.page.locator('.menu [data-role="levels"]').dispatchEvent('click');
+  const foot2 = second.page.locator('.screen.levels .foot button');
+  await expect(foot2).toHaveText('PLAY LEVEL 5', { timeout: 60_000 });
+  await foot2.dispatchEvent('click');
+  const ask = second.page.locator('.modal.confirm');
+  await expect(ask).toContainText('Your shift is on wave 3 with 1,500 points.');
+  await ask.locator('[data-role="cancel"]').dispatchEvent('click');
+  await expect(ask).toHaveCount(0);
+  await expect(second.page.locator('.screen.levels')).toHaveCount(1);
+  expect((await stored(second.page))?.active).toMatchObject({ kind: 'endless', run: { runId: 'kept' } });
+  expect([...errors, ...second.errors]).toEqual([]);
+  await second.context.close();
+});
+
+test('level select: a saved game that cannot be continued is dropped with the message, and the screen comes back', async ({
+  browser,
+  baseURL,
+}) => {
+  // A level 5 game saved under another ruleset.
+  const level5 = newShipment({ levelId: 5 });
+  const save = quietSave((d) => {
+    d.campaign.stars = { 1: 3, 2: 3, 3: 3, 4: 3 };
+    d.active = { ...activeFrom(level5.session, null)!, rulesetVersion: 1 } as SaveData['active'];
+  }, 5);
+  const { context, page, errors } = await openWithSave(browser, baseURL, save, undefined, { viewport: PHONE });
+  await bootToMenu(page);
+  await page.locator('.menu [data-role="levels"]').dispatchEvent('click');
+  const foot = page.locator('.screen.levels .foot button');
+  await expect(foot).toHaveText('CONTINUE - LEVEL 5', { timeout: 60_000 });
+  await foot.dispatchEvent('click');
+  const card = page.locator('[data-role="resume-failed"]');
+  await expect(card).toContainText('The saved game cannot be continued in this version. Your stars and records are safe.');
+  await expect(page.locator('.screen.levels')).toHaveCount(1);
+  expect((await stored(page))?.active).toBeNull();
+  expect((await stored(page))?.campaign.stars).toEqual({ 1: 3, 2: 3, 3: 3, 4: 3 });
+  await card.locator('[data-role="save-ok"]').click();
+  await expect(card).toHaveCount(0);
+  expect(errors).toEqual([]);
+  await context.close();
+});
