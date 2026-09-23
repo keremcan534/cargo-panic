@@ -306,13 +306,17 @@ and the game says progress cannot be saved.
 The game in progress is saved too: the level or Endless shift, the rack, the
 belt, the hazard clocks, help used and the undo right - at every committed
 move, pause and resume, when the app goes to the background and when leaving
-for a menu, never per frame. The menu then offers CONTINUE: the game comes
-back paused, nothing moved, and only RESUME starts the clocks. An Endless
+for a menu, never per frame. The menu then offers CONTINUE (so does the
+level select's button when the saved game is the campaign's next level;
+otherwise it reads PLAY LEVEL N and starts fresh): the game comes back
+paused, nothing moved, and only RESUME starts the clocks - and shows the
+opening notes, which could not be read under the panel. An Endless
 wave's reward, the move to the next wave and the saved shift are one write,
 so a reload cannot pay a wave twice. When the tab is hidden or the app goes
 to the background the game pauses ("Paused while you were away"), sound stops
-and the save is written; the time away is never charged. Escape (and the
-Android back button) opens or closes the pause panel. The native hooks
+and the save is written; the time away is never charged. In the game,
+Escape (like the Android back button) acknowledges a save message on screen
+first, else opens or closes the pause panel. The native hooks
 (Capacitor App plugin: app state and back button) are prepared in
 `src/platform/lifecycle.ts` but the plugin is not installed, so only the web
 lifecycle has been tested.
