@@ -22,6 +22,7 @@ import { getLanguage, t } from '../i18n';
 import type { RenderMode } from '../render/GameView';
 import type { QualityPref, Stage } from '../render/Stage';
 import { showNotice } from '../ui/Notice';
+import { closeSaveMessage } from '../ui/SaveNotices';
 import { FrameLoop } from './FrameLoop';
 import { applyLanguage, applyMotionClass, effectiveReducedMotion, onSystemMotionChange } from './Preferences';
 import { Router } from './Router';
@@ -95,8 +96,12 @@ export class App {
     if (this.lostStage && !this.lostTimer) this.waitForContext(this.lostStage);
   }
 
-  /** Android back button: the current screen handles it, or (false) the native layer exits the app. */
+  /**
+   * Android back button: acknowledges a save message on screen, else the
+   * current screen handles it, or (false) the native layer exits the app.
+   */
   back(): boolean {
+    if (closeSaveMessage()) return true;
     return this.router.current?.back?.() ?? false;
   }
 

@@ -28,22 +28,28 @@ const noticeText = (n: SaveNotice) => t(`save.${n}` as TextKey);
 // --- cards with OK ------------------------------------------------------------
 
 const queue: { text: string; role: string }[] = [];
-let showing = false;
+/** The card on screen, or null. */
+let current: HTMLElement | null = null;
 
 /** A small blocking card with `text` and OK. Several wait their turn. */
 export function showSaveMessage(text: string, role = 'save-message') {
   queue.push({ text, role });
-  if (!showing) showNext();
+  if (!current) showNext();
+}
+
+/** Android back: the same as OK on the card on screen. False when there is none. */
+export function closeSaveMessage(): boolean {
+  if (!current) return false;
+  current.remove();
+  showNext();
+  return true;
 }
 
 function showNext() {
+  current = null;
   const item = queue.shift();
-  showing = item !== undefined;
   if (!item) return;
-  const ok = btn(t('save.ok'), () => {
-    root.remove();
-    showNext();
-  }, 'primary', 'md');
+  const ok = btn(t('save.ok'), () => current === root && closeSaveMessage(), 'primary', 'md');
   ok.dataset.role = 'save-ok';
   const card = el('div', { class: 'card' }, [
     el('div', { class: 'body', text: item.text }),
@@ -55,6 +61,7 @@ function showNext() {
   root.setAttribute('aria-modal', 'true');
   root.setAttribute('aria-label', item.text);
   host().append(root);
+  current = root;
   ok.focus();
 }
 

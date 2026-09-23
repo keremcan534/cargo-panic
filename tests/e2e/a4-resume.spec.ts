@@ -518,9 +518,18 @@ test('native lifecycle WIRING through a FAKE Capacitor App plugin (browser only,
     ] as const);
   const exits = (page: Page) => page.evaluate(() => (window as unknown as { __exits: number }).__exits);
 
-  const { context, page, errors } = await openWithSave(browser, baseURL, quietSave(), fakePlugin, { viewport: PHONE });
+  // A damaged save with a good backup, so a save message is up at boot.
+  const { context, page, errors } = await openWithSave(browser, baseURL, 'garbage{', fakePlugin, {
+    viewport: PHONE,
+    storage: { 'cargo-panic.save.v2.bak': quietSave() },
+  });
   await bootToMenu(page);
-  // Back on the bare title screen: the app may exit.
+  const card = page.locator('[data-role="save-recovered-backup"]');
+  await expect(card).toBeVisible();
+  // Back acknowledges the message first; on the bare title screen the app may exit.
+  await native(page, 'backButton');
+  await expect(card).toHaveCount(0);
+  expect(await exits(page)).toBe(0);
   await native(page, 'backButton');
   expect(await exits(page)).toBe(1);
 
