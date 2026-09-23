@@ -380,7 +380,7 @@ src/
     GameView.ts, Stage.ts  renderer contracts (no three.js)
     createStage.ts         makes a Stage; the ONLY (dynamic) import of the 3D renderer, 2D fallback
     quality.ts             3D quality profiles (auto / low / high) and the adaptive ladder
-    hero.ts                the title screen's hero rack, shared by both renderers
+    hero.ts                the title screen's hero rack and the rule that fits it between the menu's text and buttons, shared by both renderers
     layout.ts              screen bands and slot hit-testing shared by every renderer
     Tween.ts               tween runner
     art/                   canvas artwork for cargo faces and shelf labels
