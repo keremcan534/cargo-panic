@@ -35,6 +35,12 @@ class Modal {
     return !this.closing;
   }
 
+  /** Runs `fn` once when the panel starts closing, whichever way it closes. */
+  onClosed(fn: () => void) {
+    if (this.closing) fn();
+    else this.cleanups.push(fn);
+  }
+
   close(after?: () => void) {
     if (this.closing) return;
     this.closing = true;
@@ -198,6 +204,8 @@ export interface PauseOptions {
   exitLabel: string;
   /** VIEW 2D | 3D and 3D QUALITY. While a switch runs, RESUME / restart / exit and the toggle are disabled. */
   view?: ViewControls;
+  /** Paused because the player was away (app in the background, or a resumed save): say that nothing moved. */
+  away?: boolean;
 }
 
 interface ToggleLabels {
@@ -237,20 +245,28 @@ function toggleRow(
 
 export class PausePanel extends Modal {
   private locked: HTMLButtonElement[] = [];
+  private awayNote: HTMLElement | null = null;
+  private readonly tryResume: () => boolean;
 
   constructor(opts: PauseOptions) {
     super();
     this.root.classList.add('pause');
     this.headline(t('pause.title'));
+    if (opts.away) this.showAway();
     const view = opts.view;
     const idle = () => !view?.busy();
+    this.tryResume = () => {
+      if (!idle() || !this.open) return false;
+      this.close(opts.onResume);
+      return true;
+    };
     if (view) {
       const section = viewSection(view, { note: true });
       this.card.append(section.el);
       this.cleanups.push(section.dispose);
       this.cleanups.push(view.subscribe(() => this.setBusy(view.busy())));
     }
-    const resume = btn(t('pause.resume'), () => idle() && this.close(opts.onResume), 'primary', 'lg');
+    const resume = btn(t('pause.resume'), () => this.tryResume(), 'primary', 'lg');
     resume.dataset.role = 'resume';
     const restart = btn(opts.restartLabel, () => idle() && this.close(opts.onRestart));
     restart.dataset.role = 'restart';
@@ -260,6 +276,25 @@ export class PausePanel extends Modal {
     for (const b of [restart, exit]) b.className = `btn ${b === exit ? 'ghost' : 'secondary'} md half`;
     this.actions(resume, toggleRow(opts, toggleLabels()), el('div', { class: 'row leave' }, [restart, exit]));
     this.setBusy(!idle());
+  }
+
+  get away(): boolean {
+    return this.awayNote !== null;
+  }
+
+  /** Adds the "paused while you were away" line under the title (once). */
+  showAway() {
+    if (this.awayNote) return;
+    const n = el('div', { class: 'note accent', text: t('pause.away') });
+    n.dataset.role = 'away';
+    n.setAttribute('role', 'status');
+    this.card.querySelector('.headline')?.after(n);
+    this.awayNote = n;
+  }
+
+  /** RESUME from outside the panel (Escape, Android back); refused while a view switch runs. */
+  resume(): boolean {
+    return this.tryResume();
   }
 
   /** While the view is being switched the player can neither resume nor leave. */
@@ -303,6 +338,35 @@ export class SettingsPanel extends Modal {
 // ---------------------------------------------------------------------------
 
 const CARGO_TYPES: readonly PackageType[] = ['standard', 'heavy', 'fragile', 'long', 'priority'];
+
+/** A yes / no question (e.g. starting fresh would end a shift in progress). */
+export class ConfirmPanel extends Modal {
+  constructor(opts: {
+    title: string;
+    body: string;
+    confirm: string;
+    cancel: string;
+    onConfirm: () => void;
+    onCancel?: () => void;
+  }) {
+    super();
+    this.root.classList.add('confirm');
+    this.headline(opts.title);
+    this.body(opts.body);
+    const yes = btn(opts.confirm, () => this.close(opts.onConfirm), 'danger', 'md');
+    yes.dataset.role = 'confirm';
+    const no = btn(opts.cancel, () => this.close(opts.onCancel), 'primary', 'lg');
+    no.dataset.role = 'cancel';
+    this.actions(no, yes);
+  }
+
+  /** Android back: the same as CANCEL. */
+  cancel(onCancel?: () => void) {
+    this.close(onCancel);
+  }
+}
+
+// ---------------------------------------------------------------------------
 
 export class LegendPanel extends Modal {
   constructor(onClose: () => void) {
