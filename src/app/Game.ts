@@ -506,19 +506,23 @@ class GameController implements Screen {
     void fadeOut(200).then(() => this.ctx.router.go(factory));
   }
 
+  /** The player replaced or ended this game: it is no longer the one to resume, and leaving does not save it again. */
+  private dropActive() {
+    this.keepActive = false;
+    progress.setActive(null);
+  }
+
   /** The same level again from the start: the new game replaces this one as the one to resume. */
   private restartLevel() {
     this.interaction.cancel();
-    this.keepActive = false;
-    progress.setActive(null);
+    this.dropActive();
     const id = this.level.id;
     this.goto((c) => gameScreen(c, { levelId: id }));
   }
 
   /** END RUN: the shift is given up; nothing is left to resume. */
   private endRun() {
-    this.keepActive = false;
-    progress.setActive(null);
+    this.dropActive();
     this.goto(menuScreen);
   }
 
@@ -1125,6 +1129,8 @@ class GameController implements Screen {
       },
       restartLabel: this.run ? t('pause.endRun') : t('pause.restartLevel'),
       exitLabel: this.run ? t('pause.mainMenu') : t('pause.levelSelect'),
+      // Dropped as the button is pressed: leaving or reloading during the panel's close must not bring it back.
+      onRestartPress: () => this.dropActive(),
       onRestart: () => {
         closed();
         if (this.run) this.endRun();

@@ -34,7 +34,7 @@ import {
   storedSave,
   tapTarget,
 } from './support/game';
-import { saveData, v2Save } from './support/save';
+import { SAVE_KEY, saveData, v2Save } from './support/save';
 
 const SHOTS = 'test-results/a4';
 const PHONE = { width: 360, height: 640 };
@@ -552,6 +552,68 @@ test('native lifecycle WIRING through a FAKE Capacitor App plugin (browser only,
   await expect(page.locator('.modal.pause')).toBeVisible();
   expect(await phase(page)).toBe('paused');
   expect(await exits(page)).toBe(1);
+  expect(errors).toEqual([]);
+  await context.close();
+});
+
+// ---------------------------------------------------------------------------
+// Review fixes
+
+/**
+ * Presses a pause panel button and, in the same task - before the panel's
+ * 190 ms close has finished - lets the page go away (pagehide) and reads the
+ * save a reload would find then. The page is shown again afterwards.
+ */
+async function pressThenLeave(page: Page, role: string) {
+  const r = await page.evaluate(
+    ([button, key]) => {
+      const b = document.querySelector<HTMLButtonElement>(`.modal.pause [data-role="${button}"]`);
+      if (!b) throw new Error(`no ${button} button`);
+      b.click();
+      window.dispatchEvent(new Event('pagehide'));
+      const closing = document.querySelector('.modal.pause.leave') !== null;
+      const raw = localStorage.getItem(key);
+      window.dispatchEvent(new Event('pageshow'));
+      return { closing, raw };
+    },
+    [role, SAVE_KEY] as const,
+  );
+  expect(r.closing).toBe(true); // still inside the close
+  return saveData(r.raw);
+}
+
+test('RESTART LEVEL and END RUN drop the saved game as they are pressed: leaving during the close keeps nothing', async ({
+  browser,
+  baseURL,
+}) => {
+  test.slow();
+  const { context, page, errors } = await openWithSave(browser, baseURL, quietSave(), undefined, { viewport: PHONE });
+  await bootToMenu(page);
+  await startLevel(page, 2);
+  await selectCargo(page, 0);
+  await tapTarget(page, { shelf: 0, slot: 0, slots: 1 });
+  await expect.poll(() => placed(page)).toBe(1);
+  await pause(page);
+  await expect.poll(async () => (await stored(page))?.active?.kind).toBe('campaign');
+  expect((await pressThenLeave(page, 'restart'))?.active).toBeNull();
+  // The level starts again and is the one to resume now.
+  const savedPlacements = async () => {
+    const a = (await stored(page))?.active;
+    return a?.kind === 'campaign' ? a.shipment.placements.length : null;
+  };
+  await expect.poll(savedPlacements, { timeout: 60_000 }).toBe(0);
+  expect(await placed(page)).toBe(0);
+
+  await bootToMenu(page, '&seed=12345');
+  await page.locator('.menu [data-role="endless"]').dispatchEvent('click');
+  await expect(page.locator('.hud .title')).toHaveText('WAVE 1', { timeout: 60_000 });
+  await page.waitForFunction(() => !!window.__cargoPanic);
+  await pause(page);
+  await expect.poll(async () => (await stored(page))?.active?.kind).toBe('endless');
+  expect((await pressThenLeave(page, 'restart'))?.active).toBeNull();
+  await expect(page.locator('.menu [data-role="play"]')).toBeVisible({ timeout: 60_000 });
+  await expect(page.locator('.menu [data-role="continue"]')).toHaveCount(0);
+  expect((await stored(page))?.active).toBeNull();
   expect(errors).toEqual([]);
   await context.close();
 });
