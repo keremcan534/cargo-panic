@@ -95,6 +95,7 @@ export class SaveStore {
   private lastWritten: string | null = null;
   private noticeQueue: SaveNotice[] = [];
   private listeners = new Set<(n: SaveNotice) => void>();
+  private statusListeners = new Set<(s: SaveStatus) => void>();
 
   constructor(
     store: KeyValueStore | null,
@@ -128,6 +129,12 @@ export class SaveStore {
   onNotice(fn: (n: SaveNotice) => void): () => void {
     this.listeners.add(fn);
     return () => this.listeners.delete(fn);
+  }
+
+  /** Called whenever `status.writeFailed` changes (a write failed, or a later one succeeded). */
+  onStatus(fn: (s: SaveStatus) => void): () => void {
+    this.statusListeners.add(fn);
+    return () => this.statusListeners.delete(fn);
   }
 
   // --------------------------------------------------------------------------
@@ -290,20 +297,31 @@ export class SaveStore {
     if (this.readOnly) return false;
     const body = JSON.stringify(this.dataValue);
     const payload = `{"v":${SAVE_VERSION},"sum":"${checksum(body)}","data":${body}}`;
-    if (payload === this.lastWritten) return true;
+    if (payload === this.lastWritten) {
+      // Storage already holds exactly this: nothing is at risk any more.
+      this.setWriteFailed(false);
+      return true;
+    }
     try {
       if (this.lastWritten !== null) this.store.set(SAVE_KEYS.backup, this.lastWritten);
       this.store.set(SAVE_KEYS.main, payload);
       this.lastWritten = payload;
-      if (this.statusValue.writeFailed) this.statusValue = { ...this.statusValue, writeFailed: false };
+      this.setWriteFailed(false);
       return true;
     } catch {
       if (!this.statusValue.writeFailed) {
-        this.statusValue = { ...this.statusValue, writeFailed: true };
+        this.setWriteFailed(true);
         this.notify('write-failed');
       }
       return false;
     }
+  }
+
+  private setWriteFailed(failed: boolean) {
+    if (this.statusValue.writeFailed === failed) return;
+    this.statusValue = { ...this.statusValue, writeFailed: failed };
+    const status = this.status;
+    for (const fn of this.statusListeners) fn(status);
   }
 
   private notify(n: SaveNotice) {
