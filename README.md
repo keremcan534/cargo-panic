@@ -293,11 +293,29 @@ board.
 
 ## Progress and settings
 
-`localStorage` under `cargo-panic.save.v1`: unlocked level, stars per level,
-best balance per level, best endless score and wave, sound and vibration
-toggles. Saves written before Endless existed load fine. If storage is unavailable
-(private mode, blocked cookies) the game silently falls back to an in-memory
-save so play is never interrupted.
+`localStorage` under `cargo-panic.save.v2` (checksummed; the previous good
+write is kept as `.bak`; see `src/game/save`). A v1 save is migrated once and
+left in place, with a copy under `cargo-panic.save.v1.backup`: stars, best
+balance, unlocks, sound, vibration and the Endless best (shown apart as a
+previous-rules record). A damaged save is restored from the backup; if that
+fails too it is set aside under `cargo-panic.save.corrupt` and a new one
+starts - the player is told either way. A save from a newer version is never
+overwritten. If storage is blocked or a write fails, play goes on from memory
+and the game says progress cannot be saved.
+
+The game in progress is saved too: the level or Endless shift, the rack, the
+belt, the hazard clocks, help used and the undo right - at every committed
+move, pause and resume, when the app goes to the background and when leaving
+for a menu, never per frame. The menu then offers CONTINUE: the game comes
+back paused, nothing moved, and only RESUME starts the clocks. An Endless
+wave's reward, the move to the next wave and the saved shift are one write,
+so a reload cannot pay a wave twice. When the tab is hidden or the app goes
+to the background the game pauses ("Paused while you were away"), sound stops
+and the save is written; the time away is never charged. Escape (and the
+Android back button) opens or closes the pause panel. The native hooks
+(Capacitor App plugin: app state and back button) are prepared in
+`src/platform/lifecycle.ts` but the plugin is not installed, so only the web
+lifecycle has been tested.
 
 Settings (main menu gear, and the pause panel): VIEW 2D / 3D, 3D QUALITY,
 REDUCED MOTION (system / on / off: no camera shake, rack wobble or pulsing,
@@ -346,9 +364,11 @@ Haptics currently go through `navigator.vibrate`
 
 ```
 src/
-  main.ts                  boots the saved view (2D or 3D) through the StageHost; gesture lockdown
+  main.ts                  boots the saved view (2D or 3D) through the StageHost; save notices; lifecycle; gesture lockdown
   app/
-    App.ts                 StageHost + the single FrameLoop + Router; view switching, context-loss fallback
+    App.ts                 StageHost + the single FrameLoop + Router; view switching, context-loss fallback, hide/show/back
+    activePlay.ts          the game in progress into and out of the save; an Endless wave banked in one write
+    FrameTimers.ts         outcome and between-wave delays on the frame clock (frozen while hidden)
     StageHost.ts           owns the one Stage, the only writer of loop.stage; serialised switches
     FrameLoop.ts           the only requestAnimationFrame loop
     Router.ts              one stage, one UI root, one screen at a time
@@ -372,7 +392,7 @@ src/
       Framing.ts           camera framing solver
       Materials.ts         PBR materials from the canvas artwork
       Warehouse.ts, Particles.ts, world/{Rack3D,Shelf3D,Cargo3D,Conveyor3D}
-  ui/                      DOM: Hud, Meter, Panels, Menu, LevelSelect, Splash, ViewSettings, Notice
+  ui/                      DOM: Hud, Meter, Panels, Menu, LevelSelect, Splash, ViewSettings, Notice, SaveNotices
   game/
     config.ts              tuning constants and world proportions
     session/               GameSession: the pure rules state and commands
