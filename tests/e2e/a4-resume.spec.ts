@@ -19,6 +19,7 @@
 
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
+import { activeFrom, newShipment } from '../../src/app/activePlay';
 import { getWave } from '../../src/game/levels/generator';
 import { PACKAGE_SPECS } from '../../src/game/levels/types';
 import type { SaveData } from '../../src/game/save/schema';
@@ -34,7 +35,7 @@ import {
   storedSave,
   tapTarget,
 } from './support/game';
-import { saveData, v2Save } from './support/save';
+import { SAVE_KEY, saveData, v2Save } from './support/save';
 
 const SHOTS = 'test-results/a4';
 const PHONE = { width: 360, height: 640 };
@@ -266,6 +267,8 @@ test('Endless: a wave dealt while the page is hidden starts paused, with the awa
   await setVisibility(page, 'hidden');
   await expect(page.locator('.hud .title')).toHaveText('WAVE 2', { timeout: 60_000 });
   await expect(page.locator('.modal.pause [data-role="away"]')).toBeVisible();
+  // The wave's intro waits for RESUME: under the panel it could not be read.
+  expect(await page.locator('.tip').count()).toBe(0); // now, not after a retry: a tip goes by itself
   expect(await phase(page)).toBe('paused');
   expect(await page.evaluate(() => window.__cargoPanic!.pauseReasons)).toEqual(expect.arrayContaining(['hidden']));
   await letTimePass(page, 1500, 10);
@@ -275,6 +278,7 @@ test('Endless: a wave dealt while the page is hidden starts paused, with the awa
   expect(await phase(page)).toBe('paused');
   await resume(page);
   await expect.poll(() => phase(page)).toBe('play');
+  await expect(page.locator('.tip')).toContainText('Heavy crates from here on.');
   await expect.poll(async () => (await snapshot(page)).activeMs).toBeGreaterThan(0);
   expect(errors).toEqual([]);
   await context.close();
@@ -552,6 +556,291 @@ test('native lifecycle WIRING through a FAKE Capacitor App plugin (browser only,
   await expect(page.locator('.modal.pause')).toBeVisible();
   expect(await phase(page)).toBe('paused');
   expect(await exits(page)).toBe(1);
+  expect(errors).toEqual([]);
+  await context.close();
+});
+
+// ---------------------------------------------------------------------------
+// Review fixes
+
+/**
+ * Presses a pause panel button and, in the same task - before the panel's
+ * 190 ms close has finished - lets the page go away (pagehide) and reads the
+ * save a reload would find then. The page is shown again afterwards.
+ */
+async function pressThenLeave(page: Page, role: string) {
+  const r = await page.evaluate(
+    ([button, key]) => {
+      const b = document.querySelector<HTMLButtonElement>(`.modal.pause [data-role="${button}"]`);
+      if (!b) throw new Error(`no ${button} button`);
+      b.click();
+      window.dispatchEvent(new Event('pagehide'));
+      const closing = document.querySelector('.modal.pause.leave') !== null;
+      const raw = localStorage.getItem(key);
+      window.dispatchEvent(new Event('pageshow'));
+      return { closing, raw };
+    },
+    [role, SAVE_KEY] as const,
+  );
+  expect(r.closing).toBe(true); // still inside the close
+  return saveData(r.raw);
+}
+
+test('RESTART LEVEL and END RUN drop the saved game as they are pressed: leaving during the close keeps nothing', async ({
+  browser,
+  baseURL,
+}) => {
+  test.slow();
+  const { context, page, errors } = await openWithSave(browser, baseURL, quietSave(), undefined, { viewport: PHONE });
+  await bootToMenu(page);
+  await startLevel(page, 2);
+  await selectCargo(page, 0);
+  await tapTarget(page, { shelf: 0, slot: 0, slots: 1 });
+  await expect.poll(() => placed(page)).toBe(1);
+  await pause(page);
+  await expect.poll(async () => (await stored(page))?.active?.kind).toBe('campaign');
+  expect((await pressThenLeave(page, 'restart'))?.active).toBeNull();
+  // The level starts again and is the one to resume now.
+  const savedPlacements = async () => {
+    const a = (await stored(page))?.active;
+    return a?.kind === 'campaign' ? a.shipment.placements.length : null;
+  };
+  await expect.poll(savedPlacements, { timeout: 60_000 }).toBe(0);
+  expect(await placed(page)).toBe(0);
+
+  await bootToMenu(page, '&seed=12345');
+  await page.locator('.menu [data-role="endless"]').dispatchEvent('click');
+  await expect(page.locator('.hud .title')).toHaveText('WAVE 1', { timeout: 60_000 });
+  await page.waitForFunction(() => !!window.__cargoPanic);
+  await pause(page);
+  await expect.poll(async () => (await stored(page))?.active?.kind).toBe('endless');
+  expect((await pressThenLeave(page, 'restart'))?.active).toBeNull();
+  await expect(page.locator('.menu [data-role="play"]')).toBeVisible({ timeout: 60_000 });
+  await expect(page.locator('.menu [data-role="continue"]')).toHaveCount(0);
+  expect((await stored(page))?.active).toBeNull();
+  expect(errors).toEqual([]);
+  await context.close();
+});
+
+/**
+ * Presses EXIT on the pause panel and, once the panel has closed and the
+ * screen is fading out to the level select (200 ms), presses Escape or lets
+ * the page go away. Returns how many pause panels are on screen right after.
+ */
+async function actDuringExitFade(page: Page, act: 'escape' | 'hide') {
+  return page.evaluate(
+    (what) =>
+      new Promise<number>((done) => {
+        document.querySelector<HTMLButtonElement>('.modal.pause [data-role="exit"]')!.click();
+        const poll = () => {
+          if (document.querySelector('.modal.pause')) {
+            setTimeout(poll, 5);
+            return;
+          }
+          if (what === 'escape') window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+          else window.dispatchEvent(new Event('pagehide'));
+          const panels = document.querySelectorAll('.modal.pause').length;
+          if (what === 'hide') window.dispatchEvent(new Event('pageshow'));
+          done(panels);
+        };
+        poll();
+      }),
+    act,
+  );
+}
+
+test('no pause panel opens while the game fades out to another screen (Escape or a hide in the fade)', async ({
+  browser,
+  baseURL,
+}) => {
+  test.slow();
+  const { context, page, errors } = await openWithSave(browser, baseURL, quietSave(), undefined, { viewport: PHONE });
+  await bootToMenu(page);
+  for (const act of ['escape', 'hide'] as const) {
+    await startLevel(page, 2);
+    await pause(page);
+    expect(await actDuringExitFade(page, act), act).toBe(0);
+    await expect(page.locator('.screen.levels')).toHaveCount(1, { timeout: 60_000 });
+    await expect(page.locator('.modal')).toHaveCount(0);
+    await page.locator('.screen.levels [data-icon="back"]').dispatchEvent('click');
+    await expect(page.locator('.menu [data-role="play"]')).toBeVisible({ timeout: 60_000 });
+  }
+  expect(errors).toEqual([]);
+  await context.close();
+});
+
+test('Escape in the game acknowledges a save message first, like the Android back button', async ({ browser, baseURL }) => {
+  test.slow();
+  // A damaged save whose backup holds a level 2 game: the recovered-backup card is up at boot.
+  const backup = quietSave((d) => {
+    d.active = activeFrom(newShipment({ levelId: 2 }).session, null);
+  });
+  const { context, page, errors } = await openWithSave(browser, baseURL, 'garbage{', undefined, {
+    viewport: PHONE,
+    storage: { 'cargo-panic.save.v2.bak': backup },
+  });
+  await bootToMenu(page);
+  const card = page.locator('[data-role="save-recovered-backup"]');
+  await expect(card).toBeVisible();
+  // CONTINUE reached past the card (as a keyboard user tabbing out of it can): the game opens paused under it.
+  await continueFromMenu(page, 'CONTINUE - LEVEL 2');
+  await expect(card).toBeVisible();
+
+  await page.keyboard.press('Escape');
+  await expect(card).toHaveCount(0);
+  await expect(page.locator('.modal.pause')).toBeVisible();
+  expect(await phase(page)).toBe('paused');
+  // Then Escape is the game's own again: it resumes.
+  await page.keyboard.press('Escape');
+  await expect.poll(() => phase(page)).toBe('play');
+  await expect(page.locator('.modal.pause')).toHaveCount(0);
+  expect(errors).toEqual([]);
+  await context.close();
+});
+
+test('CONTINUE between Endless waves: the newly dealt wave gets its intro on RESUME; a restored wave does not', async ({
+  browser,
+  baseURL,
+}) => {
+  test.slow();
+  // Saved in the dispatch after wave 1: the run is on wave 2, which has not been dealt.
+  const run = { runId: 'between', seed: 12345, wave: 2, score: 500, stowed: 4, cleanWaves: 1, assisted: false, rewardedThrough: 1 };
+  const save = quietSave((d) => {
+    d.active = activeFrom(null, run);
+  });
+  const { context, page, errors } = await openWithSave(browser, baseURL, save, undefined, { viewport: PHONE });
+  await bootToMenu(page);
+  await continueFromMenu(page, 'CONTINUE SHIFT - WAVE 2');
+  const tip = page.locator('.tip');
+  expect(await tip.count()).toBe(0); // nothing under the away panel
+  await resume(page);
+  await expect(tip).toContainText('Heavy crates from here on.');
+  expect(await phase(page)).toBe('play');
+
+  // Mid-wave, the wave comes back restored: it already had its intro.
+  const first = getWave(12345, 2).solution[0];
+  await new Hand(page).drag(first.id, { shelf: first.shelf, slot: first.slot, slots: PACKAGE_SPECS[first.type].slots });
+  await expect.poll(() => placed(page)).toBe(1);
+  await page.reload();
+  await continueFromMenu(page, 'CONTINUE SHIFT - WAVE 2');
+  await resume(page);
+  await expect.poll(() => phase(page)).toBe('play');
+  expect(await tip.count()).toBe(0);
+  expect(errors).toEqual([]);
+  await context.close();
+});
+
+test('a cargo type first met in a game that opens paused is explained on RESUME, and only then marked seen', async ({
+  browser,
+  baseURL,
+}) => {
+  test.slow();
+  // A level 4 game (a heavy crate is the live package) by a player who has never had a cargo type explained.
+  const save = quietSave((d) => {
+    d.tutorial.seenCargo = [];
+    d.active = activeFrom(newShipment({ levelId: 4 }).session, null);
+  });
+  const { context, page, errors } = await openWithSave(browser, baseURL, save, undefined, { viewport: PHONE });
+  await bootToMenu(page);
+  await continueFromMenu(page, 'CONTINUE - LEVEL 4');
+  const explainer = page.locator('.tip.cargo-first');
+  expect(await explainer.count()).toBe(0);
+  expect((await stored(page))!.tutorial.seenCargo).toEqual([]);
+  await resume(page);
+  await expect(explainer).toHaveText('HEAVY CRATE - weight 5. It pushes the rack hard, and nothing fragile may sit below it.');
+  await expect.poll(async () => (await stored(page))!.tutorial.seenCargo).toEqual(['heavy']);
+  expect(errors).toEqual([]);
+  await context.close();
+});
+
+test('level select: CONTINUE - LEVEL N resumes the saved game of that level; with another game saved the button says it starts fresh', async ({
+  browser,
+  baseURL,
+}) => {
+  test.slow();
+  // Levels 1-4 cleared; a level 5 game in progress, one heavy crate on the bottom shelf.
+  const cleared = (d: SaveData) => {
+    d.campaign.stars = { 1: 3, 2: 3, 3: 3, 4: 3 };
+  };
+  const level5 = newShipment({ levelId: 5 });
+  expect(level5.session.move(0, 0, 2).ok).toBe(true);
+  const save = quietSave((d) => {
+    cleared(d);
+    d.active = activeFrom(level5.session, null);
+  }, 5);
+  const { context, page, errors } = await openWithSave(browser, baseURL, save, undefined, { viewport: PHONE });
+  await bootToMenu(page);
+  await page.locator('.menu [data-role="levels"]').dispatchEvent('click');
+  const foot = page.locator('.screen.levels .foot button');
+  await expect(foot).toHaveText('CONTINUE - LEVEL 5', { timeout: 60_000 });
+  await expect(foot).toHaveAttribute('data-role', 'continue');
+  await foot.dispatchEvent('click');
+  // The saved game, paused - not level 5 dealt again over it.
+  await expect(page.locator('.modal.pause [data-role="away"]')).toBeVisible({ timeout: 60_000 });
+  await page.waitForFunction(() => !!window.__cargoPanic);
+  expect(await placed(page)).toBe(1);
+  expect(await phase(page)).toBe('paused');
+
+  // A level 2 replay is the saved game now: the button starts level 5 fresh, and says so.
+  await page.locator('.modal.pause [data-role="exit"]').dispatchEvent('click');
+  await page.locator('[data-level="2"]').dispatchEvent('click');
+  await expect(page.locator('.hud .title')).toHaveText('LEVEL 2', { timeout: 60_000 });
+  await expect.poll(async () => (await stored(page))?.active).toMatchObject({ kind: 'campaign', levelId: 2 });
+  await pause(page);
+  await page.locator('.modal.pause [data-role="exit"]').dispatchEvent('click');
+  await expect(foot).toHaveText('PLAY LEVEL 5', { timeout: 60_000 });
+  await expect(foot).toHaveAttribute('data-role', 'play');
+  await foot.dispatchEvent('click');
+  await expect(page.locator('.hud .title')).toHaveText('LEVEL 5', { timeout: 60_000 });
+  await page.waitForFunction(() => !!window.__cargoPanic);
+  expect(await placed(page)).toBe(0);
+  expect(await phase(page)).toBe('play');
+  await context.close();
+
+  // A shift with points saved: PLAY LEVEL 5 asks first, like the menu; KEEP MY SHIFT keeps it.
+  const shift = quietSave((d) => {
+    cleared(d);
+    d.active = activeFrom(null, { runId: 'kept', seed: 12345, wave: 3, score: 1500, stowed: 9, cleanWaves: 1, assisted: false, rewardedThrough: 2 });
+  }, 5);
+  const second = await openWithSave(browser, baseURL, shift, undefined, { viewport: PHONE });
+  await bootToMenu(second.page);
+  await second.page.locator('.menu [data-role="levels"]').dispatchEvent('click');
+  const foot2 = second.page.locator('.screen.levels .foot button');
+  await expect(foot2).toHaveText('PLAY LEVEL 5', { timeout: 60_000 });
+  await foot2.dispatchEvent('click');
+  const ask = second.page.locator('.modal.confirm');
+  await expect(ask).toContainText('Your shift is on wave 3 with 1,500 points.');
+  await ask.locator('[data-role="cancel"]').dispatchEvent('click');
+  await expect(ask).toHaveCount(0);
+  await expect(second.page.locator('.screen.levels')).toHaveCount(1);
+  expect((await stored(second.page))?.active).toMatchObject({ kind: 'endless', run: { runId: 'kept' } });
+  expect([...errors, ...second.errors]).toEqual([]);
+  await second.context.close();
+});
+
+test('level select: a saved game that cannot be continued is dropped with the message, and the screen comes back', async ({
+  browser,
+  baseURL,
+}) => {
+  // A level 5 game saved under another ruleset.
+  const level5 = newShipment({ levelId: 5 });
+  const save = quietSave((d) => {
+    d.campaign.stars = { 1: 3, 2: 3, 3: 3, 4: 3 };
+    d.active = { ...activeFrom(level5.session, null)!, rulesetVersion: 1 } as SaveData['active'];
+  }, 5);
+  const { context, page, errors } = await openWithSave(browser, baseURL, save, undefined, { viewport: PHONE });
+  await bootToMenu(page);
+  await page.locator('.menu [data-role="levels"]').dispatchEvent('click');
+  const foot = page.locator('.screen.levels .foot button');
+  await expect(foot).toHaveText('CONTINUE - LEVEL 5', { timeout: 60_000 });
+  await foot.dispatchEvent('click');
+  const card = page.locator('[data-role="resume-failed"]');
+  await expect(card).toContainText('The saved game cannot be continued in this version. Your stars and records are safe.');
+  await expect(page.locator('.screen.levels')).toHaveCount(1);
+  expect((await stored(page))?.active).toBeNull();
+  expect((await stored(page))?.campaign.stars).toEqual({ 1: 3, 2: 3, 3: 3, 4: 3 });
+  await card.locator('[data-role="save-ok"]').click();
+  await expect(card).toHaveCount(0);
   expect(errors).toEqual([]);
   await context.close();
 });

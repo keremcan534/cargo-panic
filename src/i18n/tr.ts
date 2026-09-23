@@ -26,7 +26,7 @@ export const tr: Record<TextKey, string> = {
   'menu.newShiftBody':
     'Vardiyan {wave}. dalgada, {score} puanla sürüyor. Yeni oyun başlatırsan vardiya biter ve puanı saklanmaz.',
   'menu.newShiftConfirm': 'YENİ OYUN BAŞLAT',
-  'menu.newShiftCancel': 'VARDİYAMA DÖN',
+  'menu.newShiftCancel': 'VARDİYAM KALSIN',
 
   // --- level select -----------------------------------------------------------
   'levels.title': 'BÖLÜM SEÇ',

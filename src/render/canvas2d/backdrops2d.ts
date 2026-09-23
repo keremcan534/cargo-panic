@@ -8,15 +8,16 @@
  *
  * `MenuBackdrop2D` is the title screen's hero rack (HERO_LEVEL / HERO_CARGO
  * from render/hero.ts, the same data the 3D title screen uses), swaying
- * gently; `LevelsBackdrop2D` is the bare warehouse behind the level grid.
- * Both re-frame themselves on resize.
+ * gently, fitted by the same rule as 3D into the band the menu's text and
+ * buttons leave free; `LevelsBackdrop2D` is the bare warehouse behind the
+ * level grid. Both re-frame themselves on resize.
  */
 
 import { W3 } from '../../game/config';
 import type { PackageType } from '../../game/levels/types';
-import { HERO_CARGO, HERO_LEVEL } from '../hero';
-import { Easing } from '../Tween';
-import type { Backdrop } from '../Stage';
+import { HERO_BOX_2D, HERO_CARGO, HERO_LEVEL, fitHero, heroSway, rotatedCorners, sameBand, swayEnvelope } from '../hero';
+import type { HeroBand } from '../hero';
+import type { Backdrop, ScreenRect } from '../Stage';
 import { rackHalfWidth, rackTopY } from '../layout';
 import { cargoCentreY, layout2d, slotCentreX } from './layout2d';
 import { RackArt2D } from './rack2d';
@@ -258,6 +259,12 @@ export class MenuBackdrop2D implements Backdrop, Layer2D {
   private originX = 0;
   private floorY = 0;
   private t = 0;
+  /** The lean of the last frame drawn. */
+  private tilt = 0;
+  private size = { width: 1, height: 1, dpr: 1 };
+  private band: HeroBand | null = null;
+  /** The size or the band changed: lay out and bake again before the next frame. */
+  private stale = true;
   private disposed = false;
 
   constructor(private host: Host2D) {
@@ -265,42 +272,73 @@ export class MenuBackdrop2D implements Backdrop, Layer2D {
   }
 
   resize(width: number, height: number, dpr: number) {
+    this.size = { width, height, dpr };
+    this.stale = true;
+  }
+
+  setHeroBand(band: HeroBand | null) {
+    if (this.disposed || sameBand(band, this.band)) return;
+    this.band = band;
+    this.stale = true;
+  }
+
+  /**
+   * The hero rack's natural place is centred at 43% of the height, the size
+   * a two-tier level is drawn at - between the wordmark and the buttons, like
+   * the 3D title. fitHero then leaves it, moves it or shrinks it into the
+   * free band (the warehouse follows, so the rack still stands on its floor)
+   * or hides it.
+   */
+  private layout() {
+    this.stale = false;
     this.free();
+    const { width, height, dpr } = this.size;
     const tiers = HERO_LEVEL.shelves.length;
     const L = layout2d(width, height, tiers, 6);
     const top = rackTopY(tiers);
-    // The hero rack sits between the wordmark and the buttons, like the 3D title.
-    this.originX = L.originX;
-    this.floorY = height * 0.43 + (top * L.scale) / 2;
-    this.rack = new RackArt2D(HERO_LEVEL, L.scale, dpr);
+    let s = L.scale;
+    let ox = L.originX;
+    let fy = height * 0.43 + (top * s) / 2;
+    const env = swayEnvelope(HERO_BOX_2D);
+    const natural = { x: ox + env.x0 * s, y: fy - env.y1 * s, w: (env.x1 - env.x0) * s, h: (env.y1 - env.y0) * s };
+    const fit = fitHero(natural, this.band);
+    if (fit) {
+      const k = fit.w / natural.w;
+      ox = fit.x + (ox - natural.x) * k;
+      fy = fit.y + (fy - natural.y) * k;
+      s *= k;
+    }
+    this.originX = ox;
+    this.floorY = fy;
     this.bg = bakeWarehouse({
       width,
       height,
       dpr,
-      scale: L.scale,
-      originX: L.originX,
-      floorY: this.floorY,
+      scale: s,
+      originX: ox,
+      floorY: fy,
       halfWidth: rackHalfWidth(6),
       rackTop: top,
       lampY: height * 0.035,
-      pool: true,
+      pool: fit !== null,
     });
+    if (!fit) return; // no room to read it: the warehouse alone
+    this.rack = new RackArt2D(HERO_LEVEL, s, dpr);
     for (const [type] of HERO_CARGO) {
-      if (!this.sprites.has(type)) this.sprites.set(type, bakeCargoSprite(this.host.art, type, false, L.scale, dpr));
+      if (!this.sprites.has(type)) this.sprites.set(type, bakeCargoSprite(this.host.art, type, false, s, dpr));
     }
   }
 
   draw(ctx: CanvasRenderingContext2D, dtMs: number) {
-    const rack = this.rack;
-    if (!this.bg || !rack) return;
+    if (this.stale) this.layout();
+    if (!this.bg) return;
     this.t += dtMs;
     ctx.drawImage(this.bg, 0, 0, this.host.width, this.host.height);
-    // Same sway as the 3D title: -0.02 <-> 0.02 rad over 3.2 s, eased.
-    let tilt = 0;
-    if (!this.host.reducedMotion) {
-      const phase = (this.t / 3200) % 2;
-      tilt = -0.02 + 0.04 * Easing.sineInOut(phase < 1 ? phase : 2 - phase);
-    }
+    const rack = this.rack;
+    if (!rack) return;
+    // Same sway as the 3D title (hero.ts); none under reduced motion.
+    const tilt = this.host.reducedMotion ? 0 : heroSway(this.t);
+    this.tilt = tilt;
     const s = rack.s;
     ctx.save();
     ctx.translate(this.originX, this.floorY);
@@ -317,6 +355,26 @@ export class MenuBackdrop2D implements Backdrop, Layer2D {
       ctx.drawImage(spr.canvas, cx - spr.w / 2 - spr.pad, cy - spr.h / 2 - spr.pad, spr.w + spr.pad * 2, spr.h + spr.pad * 2);
     }
     ctx.restore();
+  }
+
+  /** Where the rack is drawn (Stage.heroRect): its box at the last frame's sway. */
+  heroRect(): ScreenRect | null {
+    if (this.disposed) return null;
+    if (this.stale) this.layout();
+    const rack = this.rack;
+    if (!rack) return null;
+    const s = rack.s;
+    let x0 = Infinity;
+    let x1 = -Infinity;
+    let y0 = Infinity;
+    let y1 = -Infinity;
+    for (const p of rotatedCorners(HERO_BOX_2D, this.tilt)) {
+      x0 = Math.min(x0, this.originX + p.x * s);
+      x1 = Math.max(x1, this.originX + p.x * s);
+      y0 = Math.min(y0, this.floorY - p.y * s);
+      y1 = Math.max(y1, this.floorY - p.y * s);
+    }
+    return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
   }
 
   private free() {

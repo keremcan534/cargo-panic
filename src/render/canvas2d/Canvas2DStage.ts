@@ -15,7 +15,15 @@
 import { Tweens } from '../Tween';
 import type { GameView } from '../GameView';
 import { StageInitError } from '../Stage';
-import type { Backdrop, BackdropKind, QualityPref, Stage, StageContextEvent, StageOptions } from '../Stage';
+import type {
+  Backdrop,
+  BackdropKind,
+  QualityPref,
+  ScreenRect,
+  Stage,
+  StageContextEvent,
+  StageOptions,
+} from '../Stage';
 import { LevelsBackdrop2D, MenuBackdrop2D } from './backdrops2d';
 import { Canvas2DGameView } from './Canvas2DGameView';
 import { Particles2D } from './Particles2D';
@@ -84,6 +92,11 @@ export class Canvas2DStage implements Stage, Host2D {
   showBackdrop(kind: BackdropKind): Backdrop {
     this.assertLive();
     return kind === 'menu' ? new MenuBackdrop2D(this) : new LevelsBackdrop2D(this);
+  }
+
+  heroRect(): ScreenRect | null {
+    for (const layer of this.layers) if (layer instanceof MenuBackdrop2D) return layer.heroRect();
+    return null;
   }
 
   setReducedMotion(on: boolean) {

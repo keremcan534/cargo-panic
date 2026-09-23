@@ -16,12 +16,15 @@ import { resumeActive } from '../app/activePlay';
 import type { AppContext, Screen, ScreenFactory } from '../app/Router';
 import { gameScreen } from '../app/Game';
 import { TOTAL_LEVELS } from '../game/levels/levels';
+import type { ActivePlay } from '../game/save/schema';
 import { audio } from '../game/systems/AudioManager';
 import { haptics } from '../game/systems/Haptics';
 import { progress } from '../game/systems/ProgressManager';
 import { formatScore, newRun, seedFromUrl } from '../game/systems/RunManager';
 import { t } from '../i18n';
+import type { HeroBand } from '../render/hero';
 import type { Backdrop, Stage } from '../render/Stage';
+import { watchHeroBand } from './heroBand';
 import { levelSelectScreen } from './LevelSelect';
 import { ConfirmPanel, SettingsPanel } from './Panels';
 import { showSaveMessage, storageWarning } from './SaveNotices';
@@ -46,6 +49,23 @@ export function confirmFreshStart(start: () => void): ConfirmPanel | null {
     cancel: t('menu.newShiftCancel'),
     onConfirm: start,
   });
+}
+
+/**
+ * CONTINUE: the saved game rebuilt, paused, and `go`ne to. If it cannot be
+ * rebuilt, the player is told and only that game is dropped (records stay);
+ * then it returns false and the caller shows its screen again, without it.
+ */
+export function continueGame(active: ActivePlay, go: (factory: ScreenFactory) => void): boolean {
+  const r = resumeActive(active);
+  if (r.ok) {
+    go((c) => gameScreen(c, { resume: r.shipment }));
+    return true;
+  }
+  progress.setActive(null);
+  progress.flush();
+  showSaveMessage(t('save.resumeFailed'), 'resume-failed');
+  return false;
 }
 
 /** The CONTINUE label for the saved game. */
@@ -93,6 +113,9 @@ export function menuScreen(ctx: AppContext, opts: MenuOptions = {}): Screen {
   let settings: SettingsPanel | null = null;
   let question: ConfirmPanel | null = null;
   let offHost: (() => void) | undefined;
+  /** The band between the tagline and the buttons, for the backdrop's hero rack (heroBand.ts). */
+  let heroBand: HeroBand | null = null;
+  let offBand: (() => void) | undefined;
   /** A screen change is on its way: a second tap starts nothing more. */
   let leaving = false;
 
@@ -115,15 +138,7 @@ export function menuScreen(ctx: AppContext, opts: MenuOptions = {}): Screen {
   /** CONTINUE: the saved game rebuilt, paused. If it cannot be, say so and drop only that game. */
   const resume = () => {
     const active = progress.active;
-    if (leaving || !active) return;
-    const r = resumeActive(active);
-    if (r.ok) {
-      go((c) => gameScreen(c, { resume: r.shipment }));
-      return;
-    }
-    progress.setActive(null);
-    progress.flush();
-    showSaveMessage(t('save.resumeFailed'), 'resume-failed');
+    if (leaving || !active || continueGame(active, go)) return;
     leaving = true;
     ctx.router.go(menuScreen); // the menu again, without CONTINUE
   };
@@ -240,11 +255,16 @@ export function menuScreen(ctx: AppContext, opts: MenuOptions = {}): Screen {
         ]),
       ]);
       uiRoot().append(root);
+      offBand = watchHeroBand(root, root.querySelector('.tagline')!, root.querySelector('.bottom')!, (band) => {
+        heroBand = band;
+        backdrop?.setHeroBand?.(band);
+      });
       if (opts.settings) openSettings();
       fadeIn();
     },
     exit() {
       offHost?.();
+      offBand?.();
       settings?.dismissNow();
       settings = null;
       question?.dismissNow();
@@ -279,6 +299,7 @@ export function menuScreen(ctx: AppContext, opts: MenuOptions = {}): Screen {
     },
     attachStage(stage: Stage) {
       backdrop = stage.showBackdrop('menu');
+      backdrop.setHeroBand?.(heroBand);
     },
   };
 }

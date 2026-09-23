@@ -17,12 +17,28 @@
 
 import type { Tweens } from './Tween';
 import type { GameView, RenderMode } from './GameView';
+import type { HeroBand } from './hero';
 
 export type QualityPref = 'auto' | 'low' | 'high';
 export type BackdropKind = 'menu' | 'levels';
 
+/** A rectangle in CSS pixels from the top-left of the stage canvas (the UI root covers the same box). */
+export interface ScreenRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 /** A decorative scene behind a menu. Re-framed by the Stage on resize. */
 export interface Backdrop {
+  /**
+   * The title screen's backdrop: the band its text and buttons leave free
+   * (null: none known). The hero rack is fitted into it by hero.ts fitHero -
+   * left alone, moved, shrunk or hidden - again on each new band and on
+   * resize. Other backdrops do not have it.
+   */
+  setHeroBand?(band: HeroBand | null): void;
   dispose(): void;
 }
 
@@ -46,6 +62,12 @@ export interface Stage {
   createGameView(): GameView;
   /** Decorative scene behind a menu screen. */
   showBackdrop(kind: BackdropKind): Backdrop;
+  /**
+   * Where the title screen's hero rack is drawn right now (the projection of
+   * its frame, feet and labels at the current sway), or null when no menu
+   * backdrop is showing it. For tests and debugging.
+   */
+  heroRect?(): ScreenRect | null;
 
   setReducedMotion(on: boolean): void;
   /** 3D quality profile; the 2D stage ignores it. */

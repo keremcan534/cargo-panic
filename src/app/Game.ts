@@ -22,7 +22,8 @@
  * a win or loss ends the active game, a cleared Endless wave banks its
  * reward together with the next wave. A resumed game - and one dealt while
  * the app is hidden - starts paused, with the "away" note on the pause
- * panel; only RESUME starts the clocks. Outcome and between-wave delays run
+ * panel; only RESUME starts the clocks (and brings the opening notes, which
+ * could not be read under the panel). Outcome and between-wave delays run
  * on the frame clock (FrameTimers), so they freeze while the app is hidden.
  *
  * Design rule enforced everywhere: nothing ever fails instantly. Imbalance,
@@ -178,12 +179,22 @@ class GameController implements Screen {
   private pauses: PauseReasons;
   /** Continued from the save (starts paused on the "away" panel). */
   private readonly resumed: boolean;
+  /**
+   * The shipment came back from a saved snapshot, so it already had its
+   * opening note. A continued Endless run whose wave had not been dealt is
+   * resumed but not restored: that wave is new.
+   */
+  private readonly restored: boolean;
+  /** The opening notes (showIntro) have been shown. */
+  private introShown = false;
   /** Session revision last saved as the active game. */
   private savedRevision = -1;
   /** False once the player chose to replace or end this game: leaving no longer saves it. */
   private keepActive = true;
   /** The app went away while the pause panel was closing after RESUME. */
   private awayWhileClosing = false;
+  /** Fading out to another screen: no pause panel opens any more (Escape, back, the app going away). */
+  private leaving = false;
 
   private view!: GameView;
   /** False between detachStage and attachStage (a view switch in progress). */
@@ -231,6 +242,7 @@ class GameController implements Screen {
     const shipment =
       data.resume ?? newShipment(data.run ? { run: data.run } : { levelId: data.levelId ?? 1 }, ctx.app.hidden);
     this.resumed = data.resume !== undefined;
+    this.restored = shipment.restored;
     this.run = shipment.run;
     this.wave = shipment.run?.wave ?? 0;
     this.level = shipment.level;
@@ -286,13 +298,8 @@ class GameController implements Screen {
     this.startTutorial();
     if (this.run) {
       const run = this.run;
-      if (!this.resumed) this.tip = new TipCard(this.waveIntro());
       this.timers.after(120, () => prefetchWave(run.seed, run.wave + 1));
-    } else if (this.level.tip && !this.tutorial?.step && !this.resumed) {
-      // (A guide step on screen from the start says the same thing, with a pointer.)
-      this.tip = new TipCard(levelText(this.level.id, 'tip', this.level.tip));
     }
-    this.explainNewCargo();
 
     // The stable root under the canvas: a view switch replaces the canvas, not this.
     this.surface = document.getElementById('game-root') as HTMLElement;
@@ -342,6 +349,9 @@ class GameController implements Screen {
       this.openPause({ away: true });
     }
     if (this.ctx.app.hidden) this.goneAway();
+    // Opening paused (resumed, or dealt while the app is hidden), the notes wait for RESUME:
+    // under the panel they could not be read, and their timers would run out unseen.
+    if (!this.pausePanel) this.showIntro();
     fadeIn();
   }
 
@@ -358,6 +368,10 @@ class GameController implements Screen {
     this.tutorial?.dispose();
     this.waveCard?.dismiss();
     this.suggestion?.dismiss();
+    // A panel still up is closed properly: its host listeners go with it, not just its DOM.
+    this.pausePanel?.dismissNow();
+    this.pausePanel = null;
+    this.legend?.dismissNow();
     this.legend = null;
     if (this.viewLive) this.view.dispose();
     this.viewLive = false;
@@ -449,9 +463,9 @@ class GameController implements Screen {
     return { ...b, placements: [], queue: [], held: null, evaluation: empty, wobble: false };
   }
 
-  /** Escape on the web does what the Android back button does. */
+  /** Escape on the web takes the Android back button's path: a save message on screen is acknowledged first. */
   private onKey = (e: KeyboardEvent) => {
-    if (e.key === 'Escape' && !e.repeat) this.back();
+    if (e.key === 'Escape' && !e.repeat) this.ctx.app.back();
   };
 
   /**
@@ -503,22 +517,27 @@ class GameController implements Screen {
   }
 
   private goto(factory: Parameters<AppContext['router']['go']>[0]) {
+    this.leaving = true;
     void fadeOut(200).then(() => this.ctx.router.go(factory));
+  }
+
+  /** The player replaced or ended this game: it is no longer the one to resume, and leaving does not save it again. */
+  private dropActive() {
+    this.keepActive = false;
+    progress.setActive(null);
   }
 
   /** The same level again from the start: the new game replaces this one as the one to resume. */
   private restartLevel() {
     this.interaction.cancel();
-    this.keepActive = false;
-    progress.setActive(null);
+    this.dropActive();
     const id = this.level.id;
     this.goto((c) => gameScreen(c, { levelId: id }));
   }
 
   /** END RUN: the shift is given up; nothing is left to resume. */
   private endRun() {
-    this.keepActive = false;
-    progress.setActive(null);
+    this.dropActive();
     this.goto(menuScreen);
   }
 
@@ -616,6 +635,26 @@ class GameController implements Screen {
     // The guide's card and the level tip share a spot; the guide wins.
     if (tut.step) this.tip?.dismiss();
     if (!tut.alive) this.tutorial = null;
+  }
+
+  /**
+   * The notes for the start of play, once, when they can be read: a newly
+   * dealt shipment's opening line (the Endless wave's intro, or the level's
+   * tip; a restored shipment already had it) and the first-encounter cargo
+   * explainer. Called as the game starts, or on RESUME when it opens paused.
+   */
+  private showIntro() {
+    if (this.introShown) return;
+    this.introShown = true;
+    if (!this.restored) {
+      if (this.run) {
+        this.tip = new TipCard(this.waveIntro());
+      } else if (this.level.tip && !this.tutorial?.step) {
+        // (A guide step on screen from the start says the same thing, with a pointer.)
+        this.tip = new TipCard(levelText(this.level.id, 'tip', this.level.tip));
+      }
+    }
+    this.explainNewCargo();
   }
 
   /**
@@ -1092,7 +1131,7 @@ class GameController implements Screen {
    */
   private openPause(opts: { away?: boolean } = {}) {
     const phase = this.session.phase;
-    if (this.pausePanel || this.legend || (phase !== 'play' && phase !== 'paused')) return;
+    if (this.leaving || this.pausePanel || this.legend || (phase !== 'play' && phase !== 'paused')) return;
     this.interaction.cancel();
     this.pauses.add('menu');
     const closed = () => {
@@ -1122,9 +1161,13 @@ class GameController implements Screen {
         // RESUME is the only thing that lifts a pause for being away.
         this.pauses.remove('hidden');
         this.pauses.remove('menu');
+        // A game that opened paused shows its opening notes now (once).
+        this.showIntro();
       },
       restartLabel: this.run ? t('pause.endRun') : t('pause.restartLevel'),
       exitLabel: this.run ? t('pause.mainMenu') : t('pause.levelSelect'),
+      // Dropped as the button is pressed: leaving or reloading during the panel's close must not bring it back.
+      onRestartPress: () => this.dropActive(),
       onRestart: () => {
         closed();
         if (this.run) this.endRun();
