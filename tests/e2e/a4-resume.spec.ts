@@ -617,3 +617,50 @@ test('RESTART LEVEL and END RUN drop the saved game as they are pressed: leaving
   expect(errors).toEqual([]);
   await context.close();
 });
+
+/**
+ * Presses EXIT on the pause panel and, once the panel has closed and the
+ * screen is fading out to the level select (200 ms), presses Escape or lets
+ * the page go away. Returns how many pause panels are on screen right after.
+ */
+async function actDuringExitFade(page: Page, act: 'escape' | 'hide') {
+  return page.evaluate(
+    (what) =>
+      new Promise<number>((done) => {
+        document.querySelector<HTMLButtonElement>('.modal.pause [data-role="exit"]')!.click();
+        const poll = () => {
+          if (document.querySelector('.modal.pause')) {
+            setTimeout(poll, 5);
+            return;
+          }
+          if (what === 'escape') window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+          else window.dispatchEvent(new Event('pagehide'));
+          const panels = document.querySelectorAll('.modal.pause').length;
+          if (what === 'hide') window.dispatchEvent(new Event('pageshow'));
+          done(panels);
+        };
+        poll();
+      }),
+    act,
+  );
+}
+
+test('no pause panel opens while the game fades out to another screen (Escape or a hide in the fade)', async ({
+  browser,
+  baseURL,
+}) => {
+  test.slow();
+  const { context, page, errors } = await openWithSave(browser, baseURL, quietSave(), undefined, { viewport: PHONE });
+  await bootToMenu(page);
+  for (const act of ['escape', 'hide'] as const) {
+    await startLevel(page, 2);
+    await pause(page);
+    expect(await actDuringExitFade(page, act), act).toBe(0);
+    await expect(page.locator('.screen.levels')).toHaveCount(1, { timeout: 60_000 });
+    await expect(page.locator('.modal')).toHaveCount(0);
+    await page.locator('.screen.levels [data-icon="back"]').dispatchEvent('click');
+    await expect(page.locator('.menu [data-role="play"]')).toBeVisible({ timeout: 60_000 });
+  }
+  expect(errors).toEqual([]);
+  await context.close();
+});

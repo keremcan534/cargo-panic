@@ -184,6 +184,8 @@ class GameController implements Screen {
   private keepActive = true;
   /** The app went away while the pause panel was closing after RESUME. */
   private awayWhileClosing = false;
+  /** Fading out to another screen: no pause panel opens any more (Escape, back, the app going away). */
+  private leaving = false;
 
   private view!: GameView;
   /** False between detachStage and attachStage (a view switch in progress). */
@@ -358,6 +360,10 @@ class GameController implements Screen {
     this.tutorial?.dispose();
     this.waveCard?.dismiss();
     this.suggestion?.dismiss();
+    // A panel still up is closed properly: its host listeners go with it, not just its DOM.
+    this.pausePanel?.dismissNow();
+    this.pausePanel = null;
+    this.legend?.dismissNow();
     this.legend = null;
     if (this.viewLive) this.view.dispose();
     this.viewLive = false;
@@ -503,6 +509,7 @@ class GameController implements Screen {
   }
 
   private goto(factory: Parameters<AppContext['router']['go']>[0]) {
+    this.leaving = true;
     void fadeOut(200).then(() => this.ctx.router.go(factory));
   }
 
@@ -1096,7 +1103,7 @@ class GameController implements Screen {
    */
   private openPause(opts: { away?: boolean } = {}) {
     const phase = this.session.phase;
-    if (this.pausePanel || this.legend || (phase !== 'play' && phase !== 'paused')) return;
+    if (this.leaving || this.pausePanel || this.legend || (phase !== 'play' && phase !== 'paused')) return;
     this.interaction.cancel();
     this.pauses.add('menu');
     const closed = () => {
