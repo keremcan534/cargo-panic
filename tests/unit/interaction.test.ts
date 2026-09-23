@@ -678,6 +678,52 @@ describe('tap select', () => {
     assert.equal(session.held, 0);
   });
 
+  test('a cancelled press on another package keeps the selection (pointercancel, blur, pause)', () => {
+    session.move(0, 0, 2);
+    tapPackage(0); // the stowed crate
+    const before = board();
+    for (const cancel of [
+      () => surface.emit('pointercancel', { pointerId: 2 }),
+      () => blur.emit('blur'),
+      () => ctl.cancel(), // what opening the pause panel or the cargo guide does
+    ]) {
+      view.pick = 1; // the live box
+      ctl.down(ptr(2));
+      assert.equal(session.held, 1, 'the pressed box is the one in hand');
+      cancel();
+      assert.equal(ctl.selection, 0, 'the selection survives the cancel');
+      assert.equal(session.held, 0, 'and is held again');
+      ctl.up(ptr(2)); // the late pointerup does nothing
+      assert.equal(ctl.selection, 0);
+    }
+    assert.equal(view.only('select').join(), 'select:0', 'the selection look never went');
+    assert.equal(log.filter((l) => l.startsWith('selected')).join(), 'selected:0');
+    assert.equal(board(), before);
+
+    // It still aims and commits.
+    tapTarget({ kind: 'slot', shelf: 0, slot: 1 });
+    assert.deepEqual(session.placements, [{ id: 0, type: 'heavy', shelf: 0, slot: 1 }]);
+    eachOnce();
+  });
+
+  test('a press on another package that becomes a drag drops the selection first', () => {
+    session.move(0, 0, 2);
+    tapPackage(0);
+    drag(1, { kind: 'slot', shelf: 0, slot: 1 });
+    assert.equal(ctl.selection, null);
+    assert.ok(view.calls.indexOf('select:null') < view.calls.indexOf('beginDrag:1:mouse'));
+    assert.deepEqual(session.placements.map((p) => [p.id, p.slot]), [[0, 2], [1, 1]]);
+    eachOnce();
+
+    // The shipment ends mid-press on another package: the old selection's look goes too.
+    tapPackage(0);
+    view.pick = 2;
+    ctl.down(ptr(3));
+    ctl.abort();
+    assert.equal(ctl.selection, null);
+    assert.equal(view.only('select').slice(-1)[0], 'select:null', 'no selection look is left');
+  });
+
   test('pause lets go of the selection in the rules; it is held again on resume', () => {
     tapPackage(0);
     session.pause();

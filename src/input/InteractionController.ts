@@ -110,6 +110,12 @@ interface CargoPress {
   dragging: boolean;
   /** The package was the selection when the press began: a tap on it deselects. */
   wasSelected: boolean;
+  /**
+   * Another package was selected when the press began. The session holds the
+   * pressed one now (it holds one at a time); the old selection is dropped
+   * once the press becomes a tap or a drag, and comes back if it is cancelled.
+   */
+  prevSelected: number | null;
 }
 
 /** A press elsewhere while a package is selected: aims the selection at the target under the finger. */
@@ -262,9 +268,16 @@ export class InteractionController {
 
     if (id !== null) {
       const wasSelected = this.selectedId === id;
-      // Pressing another package lets go of the selection (a tap on it selects it instead).
-      if (this.selectedId !== null && !wasSelected) this.deselect();
-      if (!s.hold(id)) return;
+      // Pressing another package puts the selection aside (still shown) until the press is a tap or a drag.
+      const prevSelected = wasSelected ? null : this.selectedId;
+      if (prevSelected !== null) {
+        this.selectedId = null;
+        s.release(prevSelected);
+      }
+      if (!s.hold(id)) {
+        if (prevSelected !== null) this.restoreSelection(prevSelected);
+        return;
+      }
       this.press = {
         kind: 'cargo',
         pointerId: e.pointerId,
@@ -274,6 +287,7 @@ export class InteractionController {
         t0: this.now(),
         dragging: false,
         wasSelected,
+        prevSelected,
       };
       this.shown = null;
       this.capture(e.pointerId);
@@ -358,6 +372,7 @@ export class InteractionController {
       this.view.cargoReturn(pr.cargoId);
     } else if (!pr.wasSelected) {
       this.session.release(pr.cargoId);
+      if (pr.prevSelected !== null) this.restoreSelection(pr.prevSelected);
     }
   }
 
@@ -390,7 +405,7 @@ export class InteractionController {
     this.view.hideGhost();
     this.hooks.preview(null);
     this.setBelt(false);
-    if (this.selectedId !== null) {
+    if (this.selectedId !== null || (pr?.kind === 'cargo' && pr.prevSelected !== null)) {
       this.selectedId = null;
       this.view.setSelected(null);
       this.hooks.selected?.(null);
@@ -422,8 +437,9 @@ export class InteractionController {
 
   private beginDrag(pr: CargoPress) {
     pr.dragging = true;
-    if (this.selectedId === pr.cargoId) {
-      // Dragging the selected package: it is in hand now, not selected.
+    if (this.selectedId === pr.cargoId || pr.prevSelected !== null) {
+      // Dragging the selected package: it is in hand now, not selected. Dragging another: the selection goes.
+      pr.prevSelected = null;
       this.selectedId = null;
       this.view.setSelected(null);
       this.hooks.selected?.(null);
@@ -555,6 +571,12 @@ export class InteractionController {
     const s = this.session;
     if (s.phase !== 'play' || s.held === id) return;
     if (!s.hold(id)) this.deselect();
+  }
+
+  /** A press on another package came to nothing: the selection it put aside is back. */
+  private restoreSelection(id: number) {
+    this.selectedId = id;
+    this.syncSelection();
   }
 
   private setBelt(on: boolean) {
