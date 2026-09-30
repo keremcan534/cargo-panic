@@ -107,8 +107,8 @@ export const SCENES: Scene[] = [
     layout: {
       kind: 'phone',
       screens: [
-        { still: 'title', from: 24, tap: { target: 'levels', beat: 26.5 } },
-        { still: 'levels', from: 27, tap: { target: 'level', beat: 29.5 } },
+        { still: 'title', from: 24, tap: { target: 'levels', beat: 26 } },
+        { still: 'levels', from: 27, tap: { target: 'level', beat: 29 } },
         { still: 'level16', from: 30 },
       ],
     },

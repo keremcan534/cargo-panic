@@ -38,11 +38,12 @@
       .textbox { position: absolute; top: 50%; transform: translateY(-50%); }
       .textbox.top { top: 70px; left: 0; right: 0; transform: none; display: flex; justify-content: center; }
       .title .lines { font-weight: 900; font-stretch: 78%; line-height: .92; text-transform: uppercase; letter-spacing: -.005em; }
-      .mask { display: inline-block; overflow: hidden; vertical-align: top; padding: 0 .03em .07em; margin: 0 -.03em -.07em; }
+      .mask { display: inline-block; overflow: hidden; vertical-align: top; white-space: nowrap; padding: 0 .03em .07em; margin: 0 -.03em -.07em; }
       .l { display: inline-block; white-space: pre; }
       .title .bar { height: 14px; width: 220px; margin-top: 30px; transform-origin: left center; border-radius: 7px; }
       .title .sub { margin-top: 28px; font-size: 46px; font-weight: 600; color: #b6c4d6; line-height: 1.2; }
-      .title .sub .mask { display: block; }
+      .title .sub .mask, .tagline .mask { display: block; white-space: normal; }
+      .tagline .l { white-space: normal; }
       .title .sub .l { display: block; white-space: normal; }
       .title.center { text-align: center; }
       .title.center .bar { margin: 26px auto 0; transform-origin: center; }
@@ -61,7 +62,7 @@
       .wordmark { font-weight: 900; font-stretch: 85%; line-height: .9; text-align: center; text-shadow: 0 10px 18px rgba(4, 7, 11, .9); }
       .wm-line.warm { color: #f0a53c; }
       .mark { margin-bottom: 34px; filter: drop-shadow(0 18px 30px rgba(0, 0, 0, .6)); }
-      .tagline { margin-top: 26px; font-size: 38px; font-weight: 800; color: #b6c4d6; letter-spacing: .03em; text-transform: uppercase; }
+      .tagline { margin-top: 26px; max-width: 820px; text-align: center; line-height: 1.25; font-size: 36px; font-weight: 800; color: #b6c4d6; letter-spacing: .03em; text-transform: uppercase; }
       .badge { margin-top: 46px; padding: 22px 60px; border-radius: 999px; background: #4da3ff; color: #0d1117;
         font-weight: 900; font-size: 46px; letter-spacing: .05em; box-shadow: 0 10px 0 #2f7ed6; }
 

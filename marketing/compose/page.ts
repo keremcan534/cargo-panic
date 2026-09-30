@@ -280,18 +280,21 @@ function buildPair(s: SceneT): Built {
   const L = s.layout as Extract<SceneT['layout'], { kind: 'pair' }>;
   const root = el('div', 'scene', scenesLayer);
   background(root, BRAND.warm);
-  const textBox = el('div', 'textbox top', root);
-  const title = makeTitle(textBox, s.title ?? '', s.sub, { size: 110, width: 1500, align: 'center' });
+  const textBox = el('div', 'textbox', root);
+  textBox.style.left = '130px';
+  const title = makeTitle(textBox, s.title ?? '', s.sub, { size: 150, width: 640, align: 'left', bar: BRAND.accent });
+  const phoneH = 880;
   const phones = [0, 1].map((i) => {
     const holder = el('div', 'phone-holder', root);
-    holder.style.left = `${W * (i === 0 ? 0.36 : 0.64)}px`;
-    holder.style.top = `${H * 0.6}px`;
-    const ph = makePhone(holder, 800);
+    holder.style.left = `${W * (i === 0 ? 0.57 : 0.81)}px`;
+    holder.style.top = `${H * 0.555}px`;
+    const ph = makePhone(holder, phoneH);
     const chip = el('div', 'chip', holder);
     chip.textContent = L.labels[i];
-    return { ph, holder, chip, p: s.placed[i] };
+    chip.style.top = `${-phoneH / 2 - 92}px`;
+    return { ph, chip, p: s.placed[i] };
   });
-  const scale = (800 - 36) / 915;
+  const scale = (phoneH - 36) / 915;
   return {
     s,
     root,
@@ -300,7 +303,7 @@ function buildPair(s: SceneT): Built {
         const f = frameAt(p, t);
         setSrc(ph.imgs[0], clipSrc(p.clip, f));
         const inU = easeOutExpo(clamp((t - s.t - i * 0.08) / 0.6));
-        const tilt = i === 0 ? 14 : -14;
+        const tilt = i === 0 ? 10 : -10;
         ph.root.style.transform = `translate(-50%, -50%) translateY(${(1 - inU) * 500}px) perspective(2400px) rotateY(${tilt}deg)`;
         chip.style.transform = `translate(-50%, 0) scale(${spring(clamp((t - s.t - 0.3 - i * 0.1) / 0.5))})`;
         const fg = tl.fingers[p.clip][f] ?? null;
