@@ -17,6 +17,7 @@
     "store:capture": "npm run build && tsx marketing/capture.ts",
     "store:video": "tsx marketing/render.ts",
     "store:stills": "tsx marketing/stills.ts",
+    "store:android-icons": "tsx marketing/android-icons.ts",
     "store:assets": "npm run store:capture && npm run store:video && npm run store:stills"
   },
   "devDependencies": {
