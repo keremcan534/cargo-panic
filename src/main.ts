@@ -19,6 +19,7 @@ import { audio } from './game/systems/AudioManager';
 import { progress } from './game/systems/ProgressManager';
 import { t } from './i18n';
 import { applyLanguage, effectiveReducedMotion } from './app/Preferences';
+import { installAds } from './platform/ads';
 import { watchLifecycle } from './platform/lifecycle';
 import type { RenderMode } from './render/GameView';
 import type { ScreenRect, StageOptions } from './render/Stage';
@@ -88,7 +89,9 @@ async function boot() {
   // What happened to the save while loading (recovered, unreadable, ...), then the live "cannot save" banner.
   showBootNotices(progress.takeSaveNotices());
   watchSaveHealth();
-  // Web: visibilitychange / pagehide / freeze. Native (Capacitor App plugin, not installed yet): state and back button.
+  // Rewarded hints only with an ad provider that can show ads; the default (NoAds) keeps hints free.
+  installAds();
+  // Web: visibilitychange / pagehide / freeze. Native shell: the Capacitor App plugin (state, back button), loaded only there.
   watchLifecycle({
     onHide: () => app.hide(),
     onShow: () => app.show(),

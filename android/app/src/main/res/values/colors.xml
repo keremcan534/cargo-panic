@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The game's background (src/style.css): behind the splash and the WebView, so there is no white flash. -->
+    <color name="app_background">#0D1117</color>
+</resources>
