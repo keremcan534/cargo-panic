@@ -47,7 +47,7 @@ Re-check every answer if ads, analytics, accounts or purchases are added.
   - The current build meets it only while it has no ads or data collection.
 - **Government app / news app / health / financial features:** No.
 - **Permissions:**
-  - Only what the Capacitor template declares, plus vibration (a normal permission) if it is enabled for haptics.
+  - INTERNET (the Capacitor template default; the game itself makes no network requests) and VIBRATE for haptics - both normal permissions.
   - No dangerous or runtime permissions.
 
 ## Only the owner can do this
