@@ -788,7 +788,8 @@ class GameController implements Screen {
     // A second finger on HINT mid-drag: the package goes back first, and a
     // selection is let go (the session refuses hints while one is held).
     this.interaction.reset();
-    requestHint(() => this.applyHint());
+    const where = this.run ? { mode: 'endless' as const, level: this.wave } : { mode: 'campaign' as const, level: this.level.id };
+    requestHint(() => this.applyHint(), undefined, where);
   }
 
   private applyHint() {
