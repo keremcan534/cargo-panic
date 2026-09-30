@@ -12,12 +12,18 @@
     "validate:endless": "tsx scripts/validate-endless.ts",
     "test": "node --import tsx --test \"tests/unit/**/*.test.ts\"",
     "baseline": "tsx scripts/baseline-snapshot.ts",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "store:explore": "npm run build && tsx marketing/explore.ts",
+    "store:capture": "npm run build && tsx marketing/capture.ts",
+    "store:video": "tsx marketing/render.ts",
+    "store:stills": "tsx marketing/stills.ts",
+    "store:assets": "npm run store:capture && npm run store:video && npm run store:stills"
   },
   "devDependencies": {
     "@playwright/test": "1.56.1",
     "@types/node": "^26.3.0",
     "@types/three": "^0.170.0",
+    "esbuild": "0.28.2",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3",
     "vite": "^6.0.11"
