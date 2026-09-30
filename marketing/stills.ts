@@ -12,7 +12,7 @@ import { join } from 'node:path';
 import { chromium, type Page } from '@playwright/test';
 import { ROOT } from './capture/director';
 import { serveCompose } from './compose/serve';
-import { BRAND, STORE } from './config';
+import { BRAND, CLIP_DIR, LANG, STORE } from './config';
 import { STORE_SHOTS } from './storyboard';
 import { loadClip } from './timeline';
 
@@ -22,7 +22,7 @@ const TINTS = [BRAND.accent, BRAND.bad, BRAND.warm, BRAND.warm, BRAND.accent, BR
 /** A clip frame's URL on the compose server; negative frames count from the clip's end. */
 function frameUrl(clip: string, frame: number) {
   const n = frame < 0 ? loadClip(clip).frames + frame : frame;
-  return `/out/clips/${clip}/${String(n).padStart(4, '0')}.jpg`;
+  return `/out/${CLIP_DIR}/${clip}/${String(n).padStart(4, '0')}.jpg`;
 }
 
 async function open(page: Page, url: string, w: number, h: number) {
@@ -46,13 +46,16 @@ async function main() {
             ? [frameUrl(s.source.clip, s.source.frame)]
             : [`/out/menus/${s.source.still}.png`];
       await open(page, server.url, STORE.screenshot.width, STORE.screenshot.height);
+      // CSS uppercase follows the page language (Turkish: i -> İ).
+      await page.evaluate((lang) => (document.documentElement.lang = lang), LANG);
       await page.evaluate(
         (spec) => (window as unknown as { renderShot(s: unknown): Promise<void> }).renderShot(spec),
-        { title: s.title, sub: s.sub, images, crop: s.crop, tint: TINTS[i % TINTS.length], side: i % 2 ? 'left' : 'right' },
+        { title: LANG === 'tr' ? s.tr.title : s.title, sub: LANG === 'tr' ? s.tr.sub : s.sub, images, crop: s.crop, tint: TINTS[i % TINTS.length], side: i % 2 ? 'left' : 'right' },
       );
-      const file = join(IMAGES, 'phoneScreenshots', `${s.file}.jpg`);
+      const file = join(IMAGES, 'phoneScreenshots', `${s.n}_${STORE.locale}.jpg`);
       await page.screenshot({ path: file, type: 'jpeg', quality: 92 });
       console.log(file);
+
     }
 
     await open(page, server.url, STORE.feature.width, STORE.feature.height);

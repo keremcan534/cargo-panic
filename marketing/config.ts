@@ -49,8 +49,13 @@ export const BRAND = {
   studio: 'BLACKBLUE STUDIOS',
 };
 
+/** The game language for captures and store images: STORE_LANG=tr npm run store:stills. */
+export const LANG = (typeof process !== 'undefined' && process.env.STORE_LANG === 'tr' ? 'tr' : 'en') as 'en' | 'tr';
+/** Recordings for another language go to out/clips-<lang>; English keeps out/clips. */
+export const CLIP_DIR = LANG === 'en' ? 'clips' : `clips-${LANG}`;
+
 export const STORE = {
-  locale: 'en-US',
+  locale: LANG === 'tr' ? 'tr-TR' : 'en-US',
   screenshot: { width: 1920, height: 1080 },
   feature: { width: 1024, height: 500 },
   icon: 512,

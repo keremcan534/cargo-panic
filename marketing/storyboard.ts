@@ -192,9 +192,12 @@ export const SCENES: Scene[] = [
 
 /** Store screenshots: a scene from a clip or a menu, with a short headline (1920 x 1080). */
 export interface StoreShot {
-  file: string;
+  /** Listing position: phoneScreenshots/<n>_<locale>.jpg */
+  n: number;
   title: string;
   sub?: string;
+  /** The same headline for the Turkish listing (STORE_LANG=tr). */
+  tr: { title: string; sub: string };
   source: { clip: string; frame: number } | { still: string } | { pair: [{ clip: string; frame: number }, { clip: string; frame: number }] };
   crop?: Crop;
 }
@@ -204,10 +207,10 @@ export interface StoreShot {
  * recorded clips (frame numbers are stable: capture is deterministic).
  */
 export const STORE_SHOTS: StoreShot[] = [
-  { file: '1_en-US', title: 'Pack it. Balance it.', sub: '25 hand-built levels, every one proven solvable', source: { clip: 'hook-l25', frame: 85 }, crop: PLAY },
-  { file: '2_en-US', title: "Don't tip the rack", sub: 'A slip gives you seconds to fix it – not an instant loss', source: { clip: 'tip-fix-l4', frame: 40 }, crop: PLAY },
-  { file: '3_en-US', title: 'Heavy. Fragile. Long. Priority.', sub: 'Every kind of cargo plays by its own rules', source: { clip: 'views-3d', frame: 63 }, crop: PLAY },
-  { file: '4_en-US', title: 'Endless Shift', sub: 'Procedural waves, every one proven solvable', source: { clip: 'endless-w12', frame: 100 }, crop: { x: 0, y: 0, w: 412, h: 800 } },
-  { file: '5_en-US', title: 'Play in 3D or 2D', sub: 'Same board, same rules – switch any time from pause', source: { pair: [{ clip: 'views-3d', frame: 63 }, { clip: 'views-2d', frame: 63 }] } },
-  { file: '6_en-US', title: 'Drag it or tap it', sub: 'And one free undo on every shipment', source: { clip: 'tap-l15', frame: 36 }, crop: PLAY },
+  { n: 1, tr: { title: 'Yerleştir. Dengele.', sub: '25 elle tasarlanmış bölüm, hepsinin çözülebildiği kanıtlı' }, title: 'Pack it. Balance it.', sub: '25 hand-built levels, every one proven solvable', source: { clip: 'hook-l25', frame: 85 }, crop: PLAY },
+  { n: 2, tr: { title: 'Rafı devirme', sub: 'Bir hata anında kaybettirmez – düzeltmek için saniyelerin var' }, title: "Don't tip the rack", sub: 'A slip gives you seconds to fix it – not an instant loss', source: { clip: 'tip-fix-l4', frame: 40 }, crop: PLAY },
+  { n: 3, tr: { title: 'Ağır. Kırılabilir. Uzun. Öncelikli.', sub: 'Her kargo türünün kendi kuralı var' }, title: 'Heavy. Fragile. Long. Priority.', sub: 'Every kind of cargo plays by its own rules', source: { clip: 'views-3d', frame: 63 }, crop: PLAY },
+  { n: 4, tr: { title: 'Sonsuz Vardiya', sub: 'Üretilen dalgalar, hepsinin çözülebildiği kanıtlı' }, title: 'Endless Shift', sub: 'Procedural waves, every one proven solvable', source: { clip: 'endless-w12', frame: 100 }, crop: { x: 0, y: 0, w: 412, h: 800 } },
+  { n: 5, tr: { title: '3D ya da 2D oyna', sub: 'Aynı raf, aynı kurallar – duraklatıp istediğin an geç' }, title: 'Play in 3D or 2D', sub: 'Same board, same rules – switch any time from pause', source: { pair: [{ clip: 'views-3d', frame: 63 }, { clip: 'views-2d', frame: 63 }] } },
+  { n: 6, tr: { title: 'Sürükle ya da dokun', sub: 'Her sevkiyatta bir ücretsiz geri alma' }, title: 'Drag it or tap it', sub: 'And one free undo on every shipment', source: { clip: 'tap-l15', frame: 36 }, crop: PLAY },
 ];

@@ -1,0 +1,1 @@
+Rafları devirmeden depoyu doldur. Dengeye dayalı bir depo bulmacası.

@@ -433,6 +433,15 @@ Everything is made from the real game; nothing is mocked up.
   License), so shots look the same on any machine, and the edit uses it too.
 - **Settings** (sizes, frame rate, quality, loudness, brand colours) live in
   [`marketing/config.ts`](marketing/config.ts).
+- **Turkish images.** `STORE_LANG=tr npm run store:capture && STORE_LANG=tr npm run store:stills`
+  records the clips with the game set to Turkish (into `marketing/out/clips-tr`)
+  and writes `fastlane/metadata/android/tr-TR/images/`, with the Turkish
+  headlines from `STORE_SHOTS` in the storyboard.
+- **Listing texts** (title, short and full description, release notes) are in
+  `fastlane/metadata/android/{en-US,tr-TR}/`. The privacy policy is
+  [`public/privacy.html`](public/privacy.html), served with the web build.
+  [`docs/play-console.md`](docs/play-console.md) lists the answers for the Play
+  Console forms and the steps only the account owner can take.
 
 ---
 

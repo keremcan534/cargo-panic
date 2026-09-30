@@ -1,0 +1,27 @@
+Pack the warehouse without tipping the shelves.
+
+Cargo rolls in on the conveyor. Drag each box onto the rack - or tap it, then tap a slot - and watch the balance meter. Every crate pulls the rack to one side, and higher shelves pull harder. Keep the imbalance inside the limit and the shipment is yours.
+
+A slip is never an instant loss. When the rack starts to tip or a shelf is overloaded, a countdown gives you a few seconds to put it right. Move a box, save the load.
+
+FOUR KINDS OF CARGO
+• Heavy crates push the rack hard and crush anything fragile beneath them.
+• Fragile crates need the column above them kept clear of heavy boxes.
+• Long packages take three slots at once.
+• Priority cargo only counts inside the gold zone.
+
+25 HAND-BUILT LEVELS
+From two boxes on one shelf to four tiers, sealed aisles and a full mixed manifest. Every level is proven solvable by a solver before it ships. Finish with a tight balance and no hint for all three stars.
+
+ENDLESS SHIFT
+Procedurally generated waves that get busier as you go, each one checked by the solver so it can always be solved. Clear a wave, bank the score, take the next one. Retry the same shift or start a new one.
+
+PLAY YOUR WAY
+• 3D warehouse or a clean 2D view - same board, same rules. Switch any time from the pause menu.
+• Drag or tap to place.
+• One free undo on every shipment.
+• A hint when you are stuck.
+• Reduced motion setting, English and Turkish.
+• Your game is saved as you play and waits, paused, when you come back.
+
+No account, no ads, no in-app purchases. Progress is stored only on your device.

@@ -13,6 +13,7 @@ import { rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { buildSave, Director, launch, MARKETING, servePreview } from './capture/director';
 import { CLIPS, resume } from './capture/clips';
+import { CLIP_DIR } from './config';
 import { campaignActive, campaignSolution } from './capture/setup';
 
 type Rect = { x: number; y: number; width: number; height: number };
@@ -90,7 +91,7 @@ async function main() {
     for (const c of CLIPS) {
       if (!want(c.name)) continue;
       const t0 = Date.now();
-      rmSync(join(MARKETING, 'out', 'clips', c.name), { recursive: true, force: true });
+      rmSync(join(MARKETING, 'out', CLIP_DIR, c.name), { recursive: true, force: true });
       const d = await Director.open(browser, server.url, c.save, c.query);
       try {
         await c.play(d);

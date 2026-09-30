@@ -15,7 +15,7 @@ import { SAVE_KEYS, SaveStore } from '../../src/game/save/SaveStore';
 import type { SaveData } from '../../src/game/save/schema';
 import { MemoryStore } from '../../src/platform/storage';
 import type { ClientPoint, DropTarget } from '../../src/render/GameView';
-import { CAPTURE } from '../config';
+import { CAPTURE, CLIP_DIR, LANG } from '../config';
 import { installVirtualClock } from './vclock';
 
 export const ROOT = resolve(import.meta.dirname, '../..');
@@ -37,7 +37,7 @@ export function buildSave(edit: (d: SaveData) => void = () => undefined): string
     d.settings.sound = false;
     d.settings.haptics = false;
     d.settings.quality = CAPTURE.quality;
-    d.settings.language = 'en';
+    d.settings.language = LANG;
     d.settings.reducedMotion = false;
     d.campaign.unlocked = TOTAL_LEVELS;
     d.tutorial.skipped = true;
@@ -132,7 +132,7 @@ export class Director {
       deviceScaleFactor: CAPTURE.dpr,
       isMobile: true,
       hasTouch: true,
-      locale: 'en-US',
+      locale: LANG === 'tr' ? 'tr-TR' : 'en-US',
       reducedMotion: 'no-preference',
     });
     await d.context.addInitScript(
@@ -190,7 +190,7 @@ export class Director {
   // --- recording --------------------------------------------------------------------
 
   startClip(name: string) {
-    const dir = join(MARKETING, 'out', 'clips', name);
+    const dir = join(MARKETING, 'out', CLIP_DIR, name);
     mkdirSync(dir, { recursive: true });
     this.recording = { dir, log: [], n: 0 };
     this.pendingEvent = undefined; // a lift from before the clip (e.g. RESUME) is not part of it

@@ -183,7 +183,7 @@ export const CLIPS: Clip[] = [
       d.startClip('endless-w12');
       await d.step(4);
       await d.drag(m.id, waveMove(W.seed, W.wave, m), 18, 6);
-      await d.until(async () => (await d.page.locator('.hud .title').innerText()) === 'WAVE 13', 600, 'wave 13');
+      await d.until(async () => ((await d.snapshot()) as unknown as { source: { wave?: number } }).source.wave === W.wave + 1, 600, 'the next wave');
       await d.step(30);
       d.endClip();
     },

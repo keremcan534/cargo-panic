@@ -8,6 +8,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { MARKETING } from './capture/director';
+import { CLIP_DIR } from './config';
 import type { FrameLog } from './capture/director';
 import { BEAT_S, SCENES, TOTAL_BEATS, type Anchor, type Scene } from './storyboard';
 
@@ -51,7 +52,7 @@ export interface Timeline {
 }
 
 export function loadClip(name: string): ClipInfo {
-  const f = join(MARKETING, 'out', 'clips', name, 'clip.json');
+  const f = join(MARKETING, 'out', CLIP_DIR, name, 'clip.json');
   if (!existsSync(f)) throw new Error(`clip ${name} is not recorded yet (npx tsx marketing/capture.ts ${name})`);
   const c = JSON.parse(readFileSync(f, 'utf8')) as ClipInfo;
   // A lift with no touch before it in the clip belongs to a tap made before recording started.
