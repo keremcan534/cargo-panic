@@ -88,7 +88,7 @@ async function boot() {
   // What happened to the save while loading (recovered, unreadable, ...), then the live "cannot save" banner.
   showBootNotices(progress.takeSaveNotices());
   watchSaveHealth();
-  // Web: visibilitychange / pagehide / freeze. Native (Capacitor App plugin, not installed yet): state and back button.
+  // Web: visibilitychange / pagehide / freeze. Native shell: the Capacitor App plugin (state, back button), loaded only there.
   watchLifecycle({
     onHide: () => app.hide(),
     onShow: () => app.show(),
