@@ -362,6 +362,78 @@ Haptics currently go through `navigator.vibrate`
 ([`src/game/systems/Haptics.ts`](src/game/systems/Haptics.ts)); swapping in
 `@capacitor/haptics` means editing only that file.
 
+### Store assets (video, screenshots, feature graphic, icon)
+
+```bash
+npm run store:assets     # all of it: record clips, render the video, render the images
+npm run store:capture    # build, then record the clips and menu screenshots
+npm run store:video      # the trailer (needs ffmpeg with libx264 on the PATH)
+npm run store:stills     # screenshots, feature graphic and icon
+npm run store:explore    # one still per candidate scene, for choosing shots
+```
+
+Everything is made from the real game; nothing is mocked up.
+
+- **Capture** ([`marketing/capture.ts`](marketing/capture.ts),
+  [`marketing/capture/`](marketing/capture/)). The built game runs in headless
+  Chromium at a 412 × 915 phone screen, 2× pixel ratio, 3D quality HIGH.
+  - An init script ([`vclock.ts`](marketing/capture/vclock.ts)) replaces
+    `requestAnimationFrame`, timers, `performance.now`, `Date.now`, `Math.random`
+    and CSS animations with one virtual clock. The game therefore advances
+    exactly 1/30 s per recorded frame, however slowly software WebGL draws, and a
+    re-run records the same frames.
+  - Clips start from real saves written by the game's own `SaveStore`, holding a
+    mid-level board built with real `GameSession` moves and restored through the
+    menu's CONTINUE.
+  - They are played with real touch input (CDP touch events).
+  - The finger's position is logged per frame, and every touch becomes a ring
+    and a click in the edit.
+  - Menus are captured as screenshots, with the rectangles of the tapped buttons
+    saved to `menus.json`.
+- **Storyboard** ([`marketing/storyboard.ts`](marketing/storyboard.ts)). The
+  trailer is laid out on a 120 BPM grid, so every cut falls on a beat and every
+  scene starts on a bar. Each clip is pinned to the beat grid by a recorded
+  event (a drop) or a frame (the collapse, the win panel).
+  [`timeline.ts`](marketing/timeline.ts) turns this into one timeline that both
+  the picture and the sound follow.
+- **Picture** ([`marketing/compose/`](marketing/compose/),
+  [`render.ts`](marketing/render.ts)).
+  - A page draws frame `t` with `renderAt(t)`; every value is computed from
+    `t`, with no CSS animation.
+  - Headlines rise letter by letter from a mask with expo and spring easing.
+  - Menus sit on an unbranded tilted phone.
+  - Scene changes use a flash, a whip pan or a hazard-stripe wipe band in the
+    game's colours.
+  - The film grain is one fixed tile, so it costs nothing to encode.
+  - Playwright screenshots each frame into ffmpeg: H.264, `yuv420p`, CRF 18,
+    `+faststart`, 1920 × 1080, 30 fps.
+- **Sound** ([`marketing/audio.ts`](marketing/audio.ts)).
+  - Synthesised in code, with no samples: kick, snare, hats, bass, pad and a
+    plucked arpeggio.
+  - Whooshes on transitions, clicks on touches, chimes on rewards and an impact
+    when the rack falls.
+  - Normalised with two-pass `loudnorm` to −14 LUFS integrated, −1 dBTP.
+- **Review and output.**
+  - `render.ts` writes `marketing/out/contact-sheet.jpg` (2 frames per second)
+    for review.
+  - It also writes a two-pass share copy when the master is over 30 MB.
+  - Videos and recordings stay in `marketing/out/` (git-ignored).
+  - The Play Console takes the promo video as a YouTube link, so the video is
+    not part of the fastlane metadata.
+- **Store images** ([`marketing/stills.ts`](marketing/stills.ts)) go into
+  fastlane's supply layout under
+  [`fastlane/metadata/android/en-US/images/`](fastlane/metadata/android/en-US/images/):
+  - `phoneScreenshots/` — six 1920 × 1080 frames, each with a headline;
+  - `featureGraphic.jpg` — 1024 × 500, an in-engine shot with the interface
+    hidden, plus the wordmark;
+  - `icon.png` — 512 × 512, the game's own mark from `index.html`.
+- **Fonts.** On an Android phone the game draws in Roboto (the system sans
+  used when Trebuchet MS is missing). The capture maps the game's font stack to
+  the bundled Roboto ([`marketing/fonts/`](marketing/fonts/), SIL Open Font
+  License), so shots look the same on any machine, and the edit uses it too.
+- **Settings** (sizes, frame rate, quality, loudness, brand colours) live in
+  [`marketing/config.ts`](marketing/config.ts).
+
 ---
 
 ## Project layout

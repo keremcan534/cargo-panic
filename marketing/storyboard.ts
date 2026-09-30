@@ -52,7 +52,7 @@ export const BEAT_S = 60 / BPM;
 export const TOTAL_BEATS = 68; // 17 bars = 34 s
 
 /** The full phone screen, and the rack with meter and belt (the play area). */
-const PLAY: Crop = { x: 0, y: 80, w: 412, h: 700 };
+const PLAY: Crop = { x: 0, y: 100, w: 412, h: 690 };
 const RACK: Crop = { x: 0, y: 200, w: 412, h: 560 };
 
 export const SCENES: Scene[] = [
@@ -61,7 +61,7 @@ export const SCENES: Scene[] = [
     beat: 0,
     beats: 4,
     title: 'PACK IT.',
-    layout: { kind: 'card', anchor: { clip: 'hook-l25', event: 'up', nth: 1, beat: 2.5 }, crop: PLAY, side: 'right' },
+    layout: { kind: 'card', anchor: { clip: 'hook-l25', event: 'up', nth: 1, beat: 2.25 }, crop: PLAY, side: 'right' },
   },
   {
     id: 'balance',
@@ -69,7 +69,7 @@ export const SCENES: Scene[] = [
     beats: 4,
     title: 'BALANCE IT.',
     enter: 'whip',
-    layout: { kind: 'card', anchor: { clip: 'hook-l25', event: 'up', nth: 2, beat: 6.5 }, crop: RACK, side: 'left' },
+    layout: { kind: 'card', anchor: { clip: 'hook-l25', event: 'up', nth: 2, beat: 6.75 }, crop: RACK, side: 'left' },
   },
   {
     id: 'tip',
@@ -85,7 +85,7 @@ export const SCENES: Scene[] = [
     beats: 4,
     title: 'FIX IT FAST.',
     enter: 'whip',
-    layout: { kind: 'card', anchor: { clip: 'tip-fix-l4', event: 'up', nth: 2, beat: 13 }, crop: PLAY, side: 'left', tint: '#3fd68a' },
+    layout: { kind: 'card', anchor: { clip: 'tip-fix-l4', event: 'up', nth: 2, beat: 13.5 }, crop: PLAY, side: 'left', tint: '#3fd68a' },
   },
   {
     id: 'fall',
@@ -93,7 +93,8 @@ export const SCENES: Scene[] = [
     beats: 4,
     title: '…OR WATCH IT FALL.',
     enter: 'cut',
-    layout: { kind: 'card', anchor: { clip: 'collapse-l4', frame: 48, beat: 17 }, crop: PLAY, side: 'right', tint: '#ff5f57' },
+    // Frame 45: the countdown reaches zero (the game's own flash); the rack falls over the next ~0.6 s.
+    layout: { kind: 'card', anchor: { clip: 'collapse-l4', frame: 45, beat: 17 }, crop: PLAY, side: 'right', tint: '#ff5f57' },
     hits: [{ beat: 17, kind: 'impact' }, { beat: 18.5, kind: 'riser' }],
   },
   { id: 'logo', beat: 20, beats: 4, enter: 'wipe', layout: { kind: 'logo' }, hits: [{ beat: 20.5, kind: 'chime' }] },
@@ -158,8 +159,9 @@ export const SCENES: Scene[] = [
     beats: 4,
     title: 'EARN ALL THREE STARS',
     enter: 'flash',
-    layout: { kind: 'card', anchor: { clip: 'long-l12', event: 'up', nth: 3, beat: 44.5 }, crop: { x: 0, y: 60, w: 412, h: 760 }, side: 'left', tint: '#ffc93c' },
-    hits: [{ beat: 46, kind: 'chime' }],
+    // Frame 152: the win panel appears; its three stars pop over frames 156-168.
+    layout: { kind: 'card', anchor: { clip: 'long-l12', frame: 152, beat: 44.5 }, crop: { x: 0, y: 60, w: 412, h: 760 }, side: 'left', tint: '#ffc93c' },
+    hits: [{ beat: 45.5, kind: 'chime' }],
   },
   {
     id: 'endless',
@@ -168,7 +170,8 @@ export const SCENES: Scene[] = [
     title: 'ENDLESS SHIFT',
     sub: 'Every wave proven solvable',
     enter: 'wipe',
-    layout: { kind: 'card', anchor: { clip: 'endless-w12', event: 'up', nth: 1, beat: 49 }, crop: { x: 0, y: 0, w: 412, h: 800 }, side: 'right', tint: '#f0a53c' },
+    // Frame 53: SHIPMENT DISPATCHED appears, the score lines tally after it.
+    layout: { kind: 'card', anchor: { clip: 'endless-w12', frame: 53, beat: 50 }, crop: { x: 0, y: 0, w: 412, h: 800 }, side: 'right', tint: '#f0a53c' },
     hits: [{ beat: 50, kind: 'chime' }],
   },
   {
@@ -201,10 +204,10 @@ export interface StoreShot {
  * recorded clips (frame numbers are stable: capture is deterministic).
  */
 export const STORE_SHOTS: StoreShot[] = [
-  { file: '1_en-US', title: 'Pack it. Balance it.', sub: '25 hand-built levels, every one proven solvable', source: { clip: 'hook-l25', frame: -1 }, crop: PLAY },
-  { file: '2_en-US', title: "Don't tip the rack", sub: 'A slip gives you seconds to fix it - not an instant loss', source: { clip: 'tip-fix-l4', frame: -2 }, crop: PLAY },
-  { file: '3_en-US', title: 'Heavy. Fragile. Long. Priority.', sub: 'Every kind of cargo plays by its own rules', source: { clip: 'views-3d', frame: -1 }, crop: PLAY },
-  { file: '4_en-US', title: 'Endless Shift', sub: 'Procedural waves, every one proven solvable', source: { clip: 'endless-w12', frame: -3 }, crop: { x: 0, y: 0, w: 412, h: 800 } },
-  { file: '5_en-US', title: 'Play in 3D or 2D', sub: 'Same board, same rules - switch any time from pause', source: { pair: [{ clip: 'views-3d', frame: -1 }, { clip: 'views-2d', frame: -1 }] } },
-  { file: '6_en-US', title: 'Drag it or tap it', sub: 'And one free undo on every shipment', source: { clip: 'tap-l15', frame: -4 }, crop: PLAY },
+  { file: '1_en-US', title: 'Pack it. Balance it.', sub: '25 hand-built levels, every one proven solvable', source: { clip: 'hook-l25', frame: 85 }, crop: PLAY },
+  { file: '2_en-US', title: "Don't tip the rack", sub: 'A slip gives you seconds to fix it – not an instant loss', source: { clip: 'tip-fix-l4', frame: 40 }, crop: PLAY },
+  { file: '3_en-US', title: 'Heavy. Fragile. Long. Priority.', sub: 'Every kind of cargo plays by its own rules', source: { clip: 'views-3d', frame: 63 }, crop: PLAY },
+  { file: '4_en-US', title: 'Endless Shift', sub: 'Procedural waves, every one proven solvable', source: { clip: 'endless-w12', frame: 100 }, crop: { x: 0, y: 0, w: 412, h: 800 } },
+  { file: '5_en-US', title: 'Play in 3D or 2D', sub: 'Same board, same rules – switch any time from pause', source: { pair: [{ clip: 'views-3d', frame: 63 }, { clip: 'views-2d', frame: 63 }] } },
+  { file: '6_en-US', title: 'Drag it or tap it', sub: 'And one free undo on every shipment', source: { clip: 'tap-l15', frame: 36 }, crop: PLAY },
 ];

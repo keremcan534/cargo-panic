@@ -161,7 +161,7 @@ export const CLIPS: Clip[] = [
       await resume(d);
       const m = campaignSolution(15)[2];
       d.startClip('tap-l15');
-      await d.step(4);
+      await d.step(16);
       await d.tap(await d.pointOf({ cargo: m.id }), 3);
       await d.step(10);
       const t = levelMove(15, m);
@@ -169,7 +169,7 @@ export const CLIPS: Clip[] = [
       await d.until(async () => (await d.aimed()) !== null, 30, 'tap target shown');
       await d.step(10);
       await d.up();
-      await d.step(24);
+      await d.step(40);
       d.endClip();
     },
   },

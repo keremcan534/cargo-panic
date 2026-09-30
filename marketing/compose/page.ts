@@ -589,7 +589,8 @@ async function renderFeature(src: string) {
   await document.fonts.ready;
   const root = stillStage(1024, 500);
   const img = el('img', '', root);
-  img.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover';
+  // Closer on the rack and to the right of centre, leaving the left for the wordmark.
+  img.style.cssText = 'position:absolute;width:140%;left:-2%;top:-20%';
   setSrc(img, src);
   const shade = el('div', '', root);
   shade.style.cssText = `position:absolute;inset:0;background:linear-gradient(90deg, ${BRAND.bg}f2 0%, ${BRAND.bg}cc 30%, transparent 58%)`;
@@ -612,7 +613,7 @@ async function renderIcon() {
       <linearGradient id="crate" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f6b75a"/><stop offset="1" stop-color="${BRAND.warm}"/></linearGradient>
     </defs>
     <rect width="32" height="32" fill="url(#g)"/>
-    <ellipse cx="16" cy="25.4" rx="11" ry="1.1" fill="#000" opacity=".45"/>
+    <ellipse cx="16" cy="24.4" rx="10.5" ry="0.9" fill="#000" opacity=".45"/>
     <rect x="6" y="13" width="20" height="11" rx="2" fill="url(#crate)"/>
     <rect x="14" y="13" width="4" height="11" fill="${BRAND.tape}"/>
     <rect x="5" y="8" width="22" height="3" rx="1.5" fill="${BRAND.accent}"/>
