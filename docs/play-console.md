@@ -45,6 +45,7 @@ Re-check every answer if ads, analytics, accounts or purchases are added.
   - The owner decides this.
   - If you include children under 13, the app must meet Families policy.
   - The current build meets it only while it has no ads or data collection.
+- **Advertising ID:** the app does not use it. Answer "No"; the merged manifest has no `com.google.android.gms.permission.AD_ID` (no Play services or ads SDK).
 - **Government app / news app / health / financial features:** No.
 - **Permissions:**
   - INTERNET (the Capacitor template default; the game itself makes no network requests) and VIBRATE for haptics - both normal permissions.
@@ -52,7 +53,7 @@ Re-check every answer if ads, analytics, accounts or purchases are added.
 
 ## Only the owner can do this
 
-1. **Developer account.** Create or sign in to the Google Play Console developer account, then create the app with package name `com.blackbluestudios.cargopanic`, from `capacitor.config.json`.
+1. **Developer account.** Create or sign in to the Google Play Console developer account, then create the app with package name `com.keremcan534.cargopanic`, from `capacitor.config.json`.
 2. **Signing.**
    - Create an upload keystore and keep it out of the repository.
    - Enrol in Play App Signing.
@@ -61,7 +62,7 @@ Re-check every answer if ads, analytics, accounts or purchases are added.
      - sign with Android Studio → Generate Signed Bundle, or with `jarsigner`/`apksigner`.
 3. **Deploy the privacy policy.** Push to `main` so that `privacy.html` is live on GitHub Pages, then paste its URL in the console.
 4. **Promo video.** Upload the trailer to YouTube and add the link.
-5. **Forms.** Fill in the forms above: Data safety, content rating, target audience and ads.
+5. **Forms.** Fill in the forms above: Data safety, content rating, target audience, ads and the advertising ID. A field-by-field Turkish walk-through is in [`YAYIN-KONTROL-LISTESI.md`](YAYIN-KONTROL-LISTESI.md); the whole release process is in [`RELEASE.md`](RELEASE.md).
 6. **Test before production.** Start with an internal testing track, install it on at least one real phone, and check:
    - portrait lock;
    - the back button;

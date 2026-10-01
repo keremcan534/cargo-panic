@@ -7,7 +7,8 @@
  *   npx tsx marketing/stills.ts
  */
 
-import { mkdirSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { mkdirSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium, type Page } from '@playwright/test';
 import { ROOT } from './capture/director';
@@ -50,7 +51,7 @@ async function main() {
       await page.evaluate((lang) => (document.documentElement.lang = lang), LANG);
       await page.evaluate(
         (spec) => (window as unknown as { renderShot(s: unknown): Promise<void> }).renderShot(spec),
-        { title: LANG === 'tr' ? s.tr.title : s.title, sub: LANG === 'tr' ? s.tr.sub : s.sub, images, crop: s.crop, tint: TINTS[i % TINTS.length], side: i % 2 ? 'left' : 'right' },
+        { title: LANG === 'en' ? s.title : s.i18n[LANG].title, sub: LANG === 'en' ? s.sub : s.i18n[LANG].sub, images, crop: s.crop, tint: TINTS[i % TINTS.length], side: i % 2 ? 'left' : 'right' },
       );
       const file = join(IMAGES, 'phoneScreenshots', `${s.n}_${STORE.locale}.jpg`);
       await page.screenshot({ path: file, type: 'jpeg', quality: 92 });
@@ -58,13 +59,20 @@ async function main() {
 
     }
 
+    // The icon and feature graphic are shared: Play shows the default listing's in languages without their own.
+    if (LANG !== 'en' && LANG !== 'tr') return;
     await open(page, server.url, STORE.feature.width, STORE.feature.height);
     await page.evaluate(() => (window as unknown as { renderFeature(s: string): Promise<void> }).renderFeature('/out/menus/feature.png'));
     await page.screenshot({ path: join(IMAGES, 'featureGraphic.jpg'), type: 'jpeg', quality: 92 });
 
     await open(page, server.url, STORE.icon, STORE.icon);
     await page.evaluate(() => (window as unknown as { renderIcon(): Promise<void> }).renderIcon());
-    await page.screenshot({ path: join(IMAGES, 'icon.png'), type: 'png', omitBackground: false });
+    const icon = join(IMAGES, 'icon.png');
+    await page.screenshot({ path: icon, type: 'png', omitBackground: false });
+    // Play asks for a 32-bit PNG (with alpha); Chromium writes an opaque page as 24-bit RGB.
+    const r = spawnSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-i', icon, '-pix_fmt', 'rgba', `${icon}.rgba.png`]);
+    if (r.status !== 0) throw new Error(`ffmpeg: ${r.stderr}`);
+    renameSync(`${icon}.rgba.png`, icon);
     console.log(`feature graphic and icon in ${IMAGES}`);
   } finally {
     await browser.close();

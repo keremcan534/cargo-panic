@@ -19,6 +19,13 @@
         font-stretch: 75% 100%;
         unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+1E00-1E9F, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+A720-A7FF;
       }
+      @font-face {
+        font-family: 'CP Roboto';
+        src: url(/fonts/roboto-cyrillic-standard-normal.woff2) format('woff2');
+        font-weight: 100 900;
+        font-stretch: 75% 100%;
+        unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+      }
       html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; background: #0d1117; }
       * { box-sizing: border-box; }
       .stage { position: relative; width: 1920px; height: 1080px; overflow: hidden; background: #0d1117; font-family: 'CP Roboto', sans-serif; color: #eef4ff; }
@@ -39,6 +46,8 @@
       .textbox.top { top: 70px; left: 0; right: 0; transform: none; display: flex; justify-content: center; }
       .title .lines { font-weight: 900; font-stretch: 78%; line-height: .92; text-transform: uppercase; letter-spacing: -.005em; }
       .mask { display: inline-block; overflow: hidden; vertical-align: top; white-space: nowrap; padding: 0 .03em .07em; margin: 0 -.03em -.07em; }
+      /* Room above the cap height for accents (Ä, É, İ, Ó, Й, Ё); the negative margin keeps the layout unchanged. */
+      .title .lines .mask { padding-top: .3em; margin-top: -.3em; }
       .l { display: inline-block; white-space: pre; }
       .title .bar { height: 14px; width: 220px; margin-top: 30px; transform-origin: left center; border-radius: 7px; }
       .title .sub { margin-top: 28px; font-size: 46px; font-weight: 600; color: #b6c4d6; line-height: 1.2; }

@@ -1,0 +1,27 @@
+Zapełnij magazyn, nie przewracając regałów.
+
+Ładunek przyjeżdża taśmą. Przeciągnij każde pudło na regał – albo stuknij je, a potem miejsce – i pilnuj wskaźnika równowagi. Każda skrzynia ciągnie regał w jedną stronę, a wyższe półki ciągną mocniej. Utrzymaj przechył w limicie, a dostawa należy do ciebie.
+
+Błąd nigdy nie jest natychmiastową porażką. Gdy regał zaczyna się przechylać albo półka jest przeciążona, rusza odliczanie: masz kilka sekund na poprawkę. Przesuń skrzynię i uratuj ładunek.
+
+CZTERY RODZAJE ŁADUNKU
+• Ciężkie skrzynie mocno pchają regał i miażdżą wszystko kruche pod sobą.
+• Nad kruchym ładunkiem kolumna musi być wolna od ciężkich skrzyń.
+• Długie paczki zajmują naraz trzy miejsca.
+• Ładunek priorytetowy liczy się tylko w złotej strefie.
+
+25 RĘCZNIE ZROBIONYCH POZIOMÓW
+Od dwóch skrzyń na jednej półce po cztery piętra, zamknięte alejki i mieszany ładunek. Przed wydaniem solver dowodzi, że każdy poziom da się przejść. Na trzy gwiazdki: ciasna równowaga i bez podpowiedzi.
+
+ZMIANA BEZ KOŃCA
+Generowane fale, coraz bardziej zatłoczone – każdą sprawdza solver, więc zawsze da się ją przejść. Ukończ falę, zgarnij punkty, bierz następną. Powtórz tę samą zmianę albo zacznij nową.
+
+GRAJ PO SWOJEMU
+• Magazyn w 3D albo czytelny widok 2D – ten sam regał, te same zasady. Zmieniaj w pauzie, kiedy chcesz.
+• Przeciągnij lub stuknij, aby położyć.
+• Jedno darmowe cofnięcie w każdej dostawie.
+• Podpowiedź, gdy utkniesz.
+• Opcja ograniczenia ruchu i dziesięć języków.
+• Gra zapisuje się w trakcie i czeka zapauzowana, gdy wrócisz.
+
+Bez konta, bez reklam, bez zakupów w aplikacji. Postępy zostają tylko na twoim urządzeniu.
