@@ -379,8 +379,6 @@ function buildEnd(s: SceneT): Built {
   const tagMask = el('span', 'mask', tag);
   const tagL = el('span', 'l', tagMask);
   tagL.textContent = BRAND.tagline;
-  const badge = el('div', 'badge', center);
-  badge.textContent = 'FREE ON ANDROID';
   return {
     s,
     root,
@@ -389,7 +387,6 @@ function buildEnd(s: SceneT): Built {
       mark.style.transform = `scale(${spring(clamp(k / 0.7))})`;
       drawWm(t, s.t + 0.1);
       tagL.style.transform = `translateY(${(1 - easeOutExpo(clamp((k - 0.6) / 0.6))) * 110}%)`;
-      badge.style.transform = `scale(${spring(clamp((k - 1.0) / 0.6))})`;
       phones.forEach((ph, i) => {
         const inU = easeOutExpo(clamp((k - 0.2 - i * 0.1) / 0.9));
         const side = i === 0 ? -1 : 1;
