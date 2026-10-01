@@ -247,7 +247,6 @@ export const tr: Record<TextKey, string> = {
   'save.active-dropped': 'Yarım kalan oyunun geri yüklenemedi.',
   'save.resumeFailed': 'Kayıtlı oyun bu sürümde sürdürülemiyor. Yıldızların ve rekorların güvende.',
   'save.ok': 'TAMAM',
-  'error.recovered': 'Bir şeyler ters gitti. Oyun toparlandı, ilerlemen güvende.',
 
   // --- campaign content ---------------------------------------------------------------------
   'level.1.name': 'İLK SEVKİYAT',
