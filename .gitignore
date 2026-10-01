@@ -11,3 +11,11 @@ playwright-report/
 # Store assets: recordings, renders and the trailer (rebuilt by npm run store:assets)
 marketing/out/
 *.mp4
+
+# Signing keys never go into the repository (the Play upload key, keystore.properties), anywhere in it. The one
+# exception is the shared debug key, android/app/debug.keystore: public on purpose so every debug APK installs over
+# the last one; it must never sign a release.
+*.jks
+*.keystore
+keystore.properties
+!android/app/debug.keystore

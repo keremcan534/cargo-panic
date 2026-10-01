@@ -165,6 +165,9 @@ export const en = {
   'settings.close': 'DONE',
   'settings.tutorial': 'REPLAY TUTORIAL',
 
+  // --- errors -------------------------------------------------------------------
+  'error.recovered': 'Something went wrong. The game recovered and your progress is safe.',
+
   // --- renderer ---------------------------------------------------------------------
   'render.fallback2d': '3D could not start on this device, so the game is in 2D. Nothing was lost.',
   'render.slowSuggest': '3D is running slowly on this device. The 2D view plays exactly the same.',

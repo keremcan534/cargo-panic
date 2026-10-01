@@ -163,6 +163,9 @@ export const tr: Record<TextKey, string> = {
   'settings.close': 'TAMAM',
   'settings.tutorial': 'REHBERİ TEKRAR GÖSTER',
 
+  // --- errors -------------------------------------------------------------------
+  'error.recovered': 'Bir şeyler ters gitti. Oyun toparlandı, ilerlemen güvende.',
+
   // --- renderer ---------------------------------------------------------------------
   'render.fallback2d': '3D bu cihazda başlatılamadı, oyun 2D açıldı. Hiçbir şey kaybolmadı.',
   'render.slowSuggest': '3D bu cihazda yavaş çalışıyor. 2D görünüm birebir aynı oynanır.',

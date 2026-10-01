@@ -125,3 +125,69 @@ test('time spent hidden is never charged, whichever arrives first: the frame or 
     g2.document = prevDoc;
   }
 });
+
+test('a subscriber that throws is reported; the others, the drawing and the next frames carry on', () => {
+  withFakeRaf((step, pending) => {
+    const perf = globalThis.performance;
+    const loop = new FrameLoop();
+    const reported: unknown[] = [];
+    loop.onError = (e) => reported.push(e);
+    const drawn: number[] = [];
+    loop.stage = {
+      tweens: { update: () => undefined },
+      render: (ms: number) => drawn.push(ms),
+    } as unknown as FrameLoop['stage'];
+    const before: number[] = [];
+    const after: number[] = [];
+    const boom = new Error('boom');
+    loop.onFrame((a) => before.push(a));
+    loop.onFrame(() => {
+      throw boom;
+    });
+    loop.onFrame((a) => after.push(a));
+    const t0 = perf.now();
+    loop.start();
+    step(t0 + 16);
+    step(t0 + 32);
+    step(t0 + 48);
+    assert.equal(pending(), 1, 'the rAF chain is still alive');
+    assert.equal(loop.frames, 3);
+    assert.equal(before.length, 3);
+    assert.equal(after.length, 3, 'subscribers after the throwing one still run');
+    assert.equal(drawn.length, 3, 'the stage still draws every frame');
+    assert.deepEqual(reported, [boom, boom, boom]);
+    loop.stop();
+  });
+});
+
+test('a stage that throws, or a reporter that throws, does not stop the loop', () => {
+  withFakeRaf((step, pending) => {
+    const perf = globalThis.performance;
+    const loop = new FrameLoop();
+    let reports = 0;
+    loop.onError = () => {
+      reports++;
+      throw new Error('the reporter failed too');
+    };
+    loop.stage = {
+      tweens: {
+        update: () => {
+          throw new Error('tweens');
+        },
+      },
+      render: () => {
+        throw new Error('render');
+      },
+    } as unknown as FrameLoop['stage'];
+    const seen: number[] = [];
+    loop.onFrame((a) => seen.push(a));
+    const t0 = perf.now();
+    loop.start();
+    step(t0 + 16);
+    step(t0 + 32);
+    assert.equal(pending(), 1);
+    assert.equal(seen.length, 2, 'subscribers run although the tweens threw');
+    assert.equal(reports, 4, 'tweens and render, each frame');
+    loop.stop();
+  });
+});
