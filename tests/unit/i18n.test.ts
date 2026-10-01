@@ -7,7 +7,16 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { LEVELS } from '../../src/game/levels/levels';
-import { LANGUAGES, LANGUAGE_LOCALES, decimalSeparator, detectLanguage, fmt, setLanguage, t } from '../../src/i18n';
+import {
+  LANGUAGES,
+  LANGUAGE_LOCALES,
+  decimalSeparator,
+  detectLanguage,
+  fmt,
+  formatScore,
+  setLanguage,
+  t,
+} from '../../src/i18n';
 import type { Lang } from '../../src/i18n';
 import { de } from '../../src/i18n/de';
 import { en } from '../../src/i18n/en';
@@ -108,4 +117,26 @@ test('device language detection', () => {
   assert.equal(detectLanguage(['ja-JP', 'tr']), 'tr');
   assert.equal(detectLanguage(['ja-JP']), 'en');
   assert.equal(detectLanguage(undefined), 'en');
+});
+
+test("scores use each language's digit grouping", () => {
+  const want: Record<Lang, string> = {
+    en: '124,800',
+    tr: '124.800',
+    de: '124.800',
+    es: '124.800',
+    fr: '124 800',
+    it: '124.800',
+    pl: '124 800',
+    pt: '124.800',
+    ru: '124 800',
+    id: '124.800',
+  };
+  for (const lang of LANGUAGES) {
+    setLanguage(lang);
+    assert.equal(formatScore(124800.4), want[lang], lang);
+    assert.equal(formatScore(0), '0', lang);
+    assert.equal(formatScore(980), '980', lang);
+  }
+  setLanguage('en');
 });

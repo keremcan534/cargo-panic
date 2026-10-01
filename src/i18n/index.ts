@@ -73,6 +73,26 @@ export function fmt(n: number, digits = 1): string {
   return sep === '.' ? s : s.replace('.', sep);
 }
 
+const scoreFormats = new Map<Lang, Intl.NumberFormat | null>();
+
+/**
+ * A whole number (a score) with the current language's digit grouping:
+ * 12,480 / 12.480 / 12 480. Plain digits if Intl cannot format it.
+ */
+export function formatScore(n: number): string {
+  const v = Math.round(n);
+  let f = scoreFormats.get(current);
+  if (f === undefined) {
+    try {
+      f = new Intl.NumberFormat(LANGUAGE_LOCALES[current], { maximumFractionDigits: 0 });
+    } catch {
+      f = null;
+    }
+    scoreFormats.set(current, f);
+  }
+  return f ? f.format(v) : String(v);
+}
+
 export function t(key: TextKey, params?: TextParams): string {
   const raw = DICTS[current][key] ?? en[key] ?? key;
   if (!params) return raw;
