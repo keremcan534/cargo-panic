@@ -325,8 +325,69 @@ fake plugin in the browser, not yet on a device.
 Settings (main menu gear, and the pause panel): VIEW 2D / 3D, 3D QUALITY,
 REDUCED MOTION (system / on / off: no camera shake, rack wobble or pulsing,
 softer glow, token particles; hazards stay as text, icon and countdown) and
-LANGUAGE (system / English / Türkçe). All text lives in `src/i18n`. Levels 1-3
-carry a short, skippable guide; REPLAY TUTORIAL in settings shows it again.
+LANGUAGE (a button naming the language in force that opens the list: SYSTEM
+and the ten languages below, each written in itself). All text lives in
+`src/i18n`. Levels 1-3 carry a short, skippable guide; REPLAY TUTORIAL in
+settings shows it again.
+
+---
+
+## Languages
+
+| Code | Picker name | Number locale | Source |
+| --- | --- | --- | --- |
+| `en` | English | en-GB | original |
+| `tr` | Türkçe | tr-TR | shipped with the game (not part of this machine-translation batch) |
+| `de` | Deutsch | de-DE | machine translation, needs native review |
+| `es` | Español | es-ES | machine translation, needs native review |
+| `fr` | Français | fr-FR | machine translation, needs native review |
+| `it` | Italiano | it-IT | machine translation, needs native review |
+| `pl` | Polski | pl-PL | machine translation, needs native review |
+| `pt` | Português (Brasil) | pt-BR | machine translation, needs native review |
+| `ru` | Русский | ru-RU | machine translation, needs native review |
+| `id` | Bahasa Indonesia | id-ID | machine translation, needs native review |
+
+See [docs/TRANSLATIONS.md](docs/TRANSLATIONS.md) for the review status and
+each language's glossary of game terms.
+
+- **Which language.** The save's `settings.language` holds the player's pick,
+  or `null` for SYSTEM: the first of the device's languages the game speaks
+  (`navigator.languages`, matched by base: `pt-PT` and `pt-BR` -> `pt`,
+  older Android's `in` -> `id`), else English. `src/i18n/languages.ts` has the
+  codes, names, locales and the tag matching; the save sanitiser keeps only
+  those codes.
+- **Applying it.** `applyLanguage()` sets the text dictionary and
+  `<html lang>`, so CSS `text-transform: uppercase` and `hyphens: auto` follow
+  the language's rules (Turkish i -> İ). A pick applies at once: the screen
+  re-renders in the new language.
+- **Numbers.** `fmt()` writes decimals with the language's separator
+  (3.5 / 3,5) and `formatScore()` groups digits its way (12,480 / 12.480 /
+  12 480).
+- **Fit.** `tests/e2e/languages.spec.ts` opens the menu, settings with the
+  language list, level select, a HUD with a hazard banner, the pause, loss
+  and win panels in every language at 360 x 640 and 412 x 915 and fails if a
+  text box or button label overflows; screenshots go to
+  `test-results/languages/`.
+
+### Adding a language
+
+1. Add its code, its own name, its number locale (and any extra device tags)
+   to `src/i18n/languages.ts`.
+2. Copy `src/i18n/en.ts` to `src/i18n/<code>.ts` as
+   `export const <code>: Record<TextKey, string> = { ... }` and translate
+   every value. The type makes a missing or extra key a compile error. Keep
+   every `{placeholder}`, keep all-caps copy all-caps (written upper-cased in
+   the language's own case rules), keep `\n` line breaks, and list the game
+   terms you chose (shelf, rack, cargo, heavy / fragile / long / priority,
+   Endless Shift, undo, hint) in the file's header.
+3. Register the dictionary in `DICTS` in `src/i18n/index.ts` (and in the
+   unit and e2e tests' dictionary maps).
+4. Run `npm test` (keys, placeholders, casing, line breaks, number formats)
+   and `npx playwright test tests/e2e/languages.spec.ts`, then look at the
+   language's screenshots in `test-results/languages/` - fix overflow with
+   CSS or a shorter wording, never by changing the English meaning.
+5. Mark it in docs/TRANSLATIONS.md (machine translation until a native
+   speaker has reviewed it).
 
 ---
 
@@ -582,7 +643,7 @@ src/
     hero.ts                the title screen's hero rack and the rule that fits it between the menu's text and buttons, shared by both renderers
     layout.ts              screen bands and slot hit-testing shared by every renderer
     Tween.ts               tween runner
-    art/                   canvas artwork for cargo faces and shelf labels
+    art/                   canvas artwork for cargo faces and shelf labels (text fitted to its box)
     canvas2d/              the Canvas 2D renderer: stage, game view, backdrops, particles
     three/                 everything that imports three.js (loaded only when 3D is chosen):
       ThreeStage.ts        WebGL renderer, camera, post chain, particles, shake, picking
@@ -596,6 +657,8 @@ src/
     storage.ts             where the save is kept
     ads.ts                 the ads boundary: AdProvider, NoAds (the default), the rewarded hint gate
   ui/                      DOM: Hud, Meter, Panels, Menu, LevelSelect, Splash, ViewSettings, Notice, SaveNotices
+  i18n/                    languages.ts (codes, names, locales, device tags), index.ts (t, fmt, formatScore),
+                           one dictionary per language: en (source), tr, de, es, fr, it, pl, pt, ru, id
   game/
     config.ts              tuning constants and world proportions
     session/               GameSession: the pure rules state and commands
