@@ -7,3 +7,7 @@ dist-ssr
 shots/
 test-results/
 playwright-report/
+
+# Store assets: recordings, renders and the trailer (rebuilt by npm run store:assets)
+marketing/out/
+*.mp4

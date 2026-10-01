@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Cargo Panic</string>
+    <string name="title_activity_main">Cargo Panic</string>
+    <string name="package_name">com.blackbluestudios.cargopanic</string>
+    <string name="custom_url_scheme">com.blackbluestudios.cargopanic</string>
+</resources>

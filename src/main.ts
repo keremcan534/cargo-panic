@@ -19,9 +19,10 @@ import { audio } from './game/systems/AudioManager';
 import { progress } from './game/systems/ProgressManager';
 import { t } from './i18n';
 import { applyLanguage, effectiveReducedMotion } from './app/Preferences';
+import { installAds } from './platform/ads';
 import { watchLifecycle } from './platform/lifecycle';
 import type { RenderMode } from './render/GameView';
-import type { StageOptions } from './render/Stage';
+import type { ScreenRect, StageOptions } from './render/Stage';
 import type { ThreeStage } from './render/three/ThreeStage';
 import { showNotice } from './ui/Notice';
 import { showBootNotices, watchSaveHealth } from './ui/SaveNotices';
@@ -54,6 +55,8 @@ interface AppProbe {
   readonly reducedMotion: boolean | null;
   /** The app is in the background as far as the lifecycle is concerned. */
   readonly hidden: boolean;
+  /** Where the title screen's hero rack is drawn (CSS px), or null when it is not. */
+  readonly heroRect: ScreenRect | null;
 }
 
 declare global {
@@ -86,7 +89,9 @@ async function boot() {
   // What happened to the save while loading (recovered, unreadable, ...), then the live "cannot save" banner.
   showBootNotices(progress.takeSaveNotices());
   watchSaveHealth();
-  // Web: visibilitychange / pagehide / freeze. Native (Capacitor App plugin, not installed yet): state and back button.
+  // Rewarded hints only with an ad provider that can show ads; the default (NoAds) keeps hints free.
+  installAds();
+  // Web: visibilitychange / pagehide / freeze. Native shell: the Capacitor App plugin (state, back button), loaded only there.
   watchLifecycle({
     onHide: () => app.hide(),
     onShow: () => app.show(),
@@ -129,6 +134,9 @@ async function boot() {
       },
       get hidden() {
         return app.hidden;
+      },
+      get heroRect() {
+        return host.stageOrNull?.heroRect?.() ?? null;
       },
     });
     // GPU resource counts, to catch leaks across screens (3D only; 2D reports the mode and frames).

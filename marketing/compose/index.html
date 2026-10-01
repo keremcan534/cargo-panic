@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Cargo Panic - store assets</title>
+    <style>
+      /* Roboto (SIL OFL, marketing/fonts): the game's font on Android. */
+      @font-face {
+        font-family: 'CP Roboto';
+        src: url(/fonts/roboto-latin-standard-normal.woff2) format('woff2');
+        font-weight: 100 900;
+        font-stretch: 75% 100%;
+        unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+      }
+      @font-face {
+        font-family: 'CP Roboto';
+        src: url(/fonts/roboto-latin-ext-standard-normal.woff2) format('woff2');
+        font-weight: 100 900;
+        font-stretch: 75% 100%;
+        unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+1E00-1E9F, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+A720-A7FF;
+      }
+      html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; background: #0d1117; }
+      * { box-sizing: border-box; }
+      .stage { position: relative; width: 1920px; height: 1080px; overflow: hidden; background: #0d1117; font-family: 'CP Roboto', sans-serif; color: #eef4ff; }
+      .scenes, .scene, .bg { position: absolute; inset: 0; }
+      .scene { display: none; }
+      .stripes { position: absolute; left: 0; right: 0; bottom: 0; height: 26px; opacity: .55;
+        background: repeating-linear-gradient(-45deg, #f0a53c 0 22px, #11161d 22px 44px); }
+
+      .card { position: absolute; border-radius: 34px; overflow: hidden; background: #000; }
+      .card .inner { position: absolute; inset: 0; transform-origin: 50% 50%; }
+      .card img.frame { position: absolute; display: block; }
+
+      .dot { position: absolute; left: 0; top: 0; width: 52px; height: 52px; border-radius: 50%; opacity: 0; z-index: 5;
+        background: rgba(255, 255, 255, .5); box-shadow: 0 0 0 3px rgba(255, 255, 255, .9), 0 6px 18px rgba(0, 0, 0, .5); }
+      .ring { position: absolute; left: 0; top: 0; border-radius: 50%; border: 5px solid #fff; opacity: 0; z-index: 5; }
+
+      .textbox { position: absolute; top: 50%; transform: translateY(-50%); }
+      .textbox.top { top: 70px; left: 0; right: 0; transform: none; display: flex; justify-content: center; }
+      .title .lines { font-weight: 900; font-stretch: 78%; line-height: .92; text-transform: uppercase; letter-spacing: -.005em; }
+      .mask { display: inline-block; overflow: hidden; vertical-align: top; white-space: nowrap; padding: 0 .03em .07em; margin: 0 -.03em -.07em; }
+      .l { display: inline-block; white-space: pre; }
+      .title .bar { height: 14px; width: 220px; margin-top: 30px; transform-origin: left center; border-radius: 7px; }
+      .title .sub { margin-top: 28px; font-size: 46px; font-weight: 600; color: #b6c4d6; line-height: 1.2; }
+      .title .sub .mask, .tagline .mask { display: block; white-space: normal; }
+      .tagline .l { white-space: normal; }
+      .title .sub .l { display: block; white-space: normal; }
+      .title.center { text-align: center; }
+      .title.center .bar { margin: 26px auto 0; transform-origin: center; }
+
+      .phone-holder { position: absolute; top: 50%; width: 0; height: 0; }
+      .phone { position: absolute; left: 0; top: 0; padding: 18px; border-radius: 66px;
+        background: linear-gradient(145deg, #2a3340, #0b0f15 60%); box-shadow: 0 50px 110px rgba(0, 0, 0, .65), inset 0 0 0 2px #3b4757; }
+      .phone .screen { position: relative; width: 100%; height: 100%; border-radius: 50px; overflow: hidden; background: #000; }
+      .phone .shot { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+      .phone .camera { position: absolute; top: 30px; left: 50%; width: 14px; height: 14px; margin-left: -7px; border-radius: 50%;
+        background: #05070a; box-shadow: inset 0 0 0 2px #1b2330; z-index: 6; }
+      .chip { position: absolute; left: 0; top: -500px; padding: 12px 44px; border-radius: 999px; background: #4da3ff; color: #0d1117;
+        font-weight: 900; font-size: 50px; box-shadow: 0 8px 0 #2f7ed6; }
+
+      .center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+      .wordmark { font-weight: 900; font-stretch: 85%; line-height: .9; text-align: center; text-shadow: 0 10px 18px rgba(4, 7, 11, .9); }
+      .wm-line.warm { color: #f0a53c; }
+      .mark { margin-bottom: 34px; filter: drop-shadow(0 18px 30px rgba(0, 0, 0, .6)); }
+      .tagline { margin-top: 26px; max-width: 820px; text-align: center; line-height: 1.25; font-size: 36px; font-weight: 800; color: #b6c4d6; letter-spacing: .03em; text-transform: uppercase; }
+      .badge { margin-top: 46px; padding: 22px 60px; border-radius: 999px; background: #4da3ff; color: #0d1117;
+        font-weight: 900; font-size: 46px; letter-spacing: .05em; box-shadow: 0 10px 0 #2f7ed6; }
+
+      .flash { position: absolute; inset: 0; background: #fff; opacity: 0; z-index: 10; }
+      .band { position: absolute; left: 0; top: -120px; width: 380px; height: 1320px; display: none; z-index: 9;
+        background: repeating-linear-gradient(-45deg, #f0a53c 0 46px, #11161d 46px 92px); box-shadow: 0 0 0 14px #f0a53c, 0 0 80px rgba(0, 0, 0, .6); }
+      .vignette { position: absolute; inset: 0; z-index: 11; background: radial-gradient(125% 105% at 50% 50%, transparent 55%, rgba(0, 0, 0, .5) 100%); }
+      .grain { position: absolute; inset: 0; z-index: 12; opacity: .05; mix-blend-mode: overlay; }
+    </style>
+  </head>
+  <body>
+    <script type="module" src="/bundle.js"></script>
+  </body>
+</html>

@@ -292,6 +292,14 @@ test('2d: a first-encounter cargo note waits while a danger runs, then shows onc
   expect((await snapshot(page)).queue[0]).toBe(1);
   expect(await notes()).toEqual([]); // not flashed and used up under the danger banner
 
+  // The crate is drawn flying from the belt to its slot for a moment: a tap aimed at it before it lands
+  // can hit the next package on the belt instead. Wait until it is drawn on its slot.
+  const drawnOnSlot = async () => {
+    const [crate, slot] = [await pointOf(page, { cargo: 0 }), await pointOf(page, { shelf: 0, slot: 3, slots: 1 })];
+    return Math.hypot(crate.x - slot.x, crate.y - slot.y) < 16;
+  };
+  await expect.poll(drawnOnSlot, { intervals: [50] }).toBe(true);
+
   // Fixed: the note comes now.
   await tapPlace(page, 0, { shelf: 0, slot: 2, slots: 1 });
   await expect(page.locator('.tip.cargo-first')).toHaveText(/^FRAGILE/);

@@ -1,6 +1,11 @@
 /**
  * Level grid over a dimmed warehouse. Five columns of five; locked tiles stay
  * dark until the previous level is cleared.
+ *
+ * A tile starts its level fresh. The button under the grid goes on with the
+ * campaign: it continues the saved game when that is the campaign's next
+ * level; with any other game saved it reads PLAY LEVEL N and starts fresh,
+ * like the menu (asking first if that would end a shift with points).
  */
 
 import type { AppContext, Screen, ScreenFactory } from '../app/Router';
@@ -11,7 +16,7 @@ import { haptics } from '../game/systems/Haptics';
 import { progress } from '../game/systems/ProgressManager';
 import { t } from '../i18n';
 import type { Backdrop, Stage } from '../render/Stage';
-import { confirmFreshStart, menuScreen } from './Menu';
+import { confirmFreshStart, continueGame, menuScreen } from './Menu';
 import type { ConfirmPanel } from './Panels';
 import { STAR_SVG, btn, el, fadeIn, fadeOut, iconBtn, uiRoot } from './dom';
 
@@ -35,6 +40,14 @@ export function levelSelectScreen(ctx: AppContext): Screen {
     asked?.onClosed(() => {
       if (question === asked) question = null;
     });
+  };
+
+  /** The saved game, rebuilt paused (as the menu's CONTINUE); if it cannot be, this screen again without it. */
+  const resume = () => {
+    const active = progress.active;
+    if (leaving || question || !active || continueGame(active, leave)) return;
+    leaving = true;
+    ctx.router.go(levelSelectScreen);
   };
 
   return {
@@ -71,14 +84,21 @@ export function levelSelectScreen(ctx: AppContext): Screen {
         grid.append(tile);
       }
 
+      // The campaign's next level. When the saved game is that level, the button continues it. With
+      // another game saved it starts the level fresh and says so, like the menu's PLAY LEVEL.
       const next = progress.unlocked;
-      const cont = btn(
-        progress.completedCount() === 0 ? t('levels.start') : t('levels.continue', { n: next }),
-        () => start(next),
-        'primary',
-        'md',
-      );
-      cont.dataset.role = 'continue';
+      const active = progress.active;
+      const resumes = active?.kind === 'campaign' && active.levelId === next;
+      const fresh = !!active && !resumes;
+      const label = resumes
+        ? t('levels.continue', { n: next })
+        : fresh
+          ? t('menu.playLevel', { n: next })
+          : progress.completedCount() === 0
+            ? t('levels.start')
+            : t('levels.continue', { n: next });
+      const cont = btn(label, () => (resumes ? resume() : start(next)), 'primary', 'md');
+      cont.dataset.role = fresh ? 'play' : 'continue';
 
       root = el('div', { class: 'screen levels fade-in' }, [
         el('div', { class: 'dim-3d' }),
