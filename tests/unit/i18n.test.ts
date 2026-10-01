@@ -1,27 +1,69 @@
 /**
- * Text dictionary integrity: Turkish covers every English key with the same
- * placeholders, English campaign copy matches the level data, formatting.
+ * Text dictionary integrity: every language covers every English key with the
+ * same placeholders and the same casing convention, English campaign copy
+ * matches the level data, number formatting per language.
  */
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { LEVELS } from '../../src/game/levels/levels';
-import { detectLanguage, fmt, setLanguage, t } from '../../src/i18n';
+import { LANGUAGES, LANGUAGE_LOCALES, decimalSeparator, detectLanguage, fmt, setLanguage, t } from '../../src/i18n';
+import type { Lang } from '../../src/i18n';
+import { de } from '../../src/i18n/de';
 import { en } from '../../src/i18n/en';
 import type { TextKey } from '../../src/i18n/en';
+import { es } from '../../src/i18n/es';
+import { fr } from '../../src/i18n/fr';
+import { id } from '../../src/i18n/id';
+import { it } from '../../src/i18n/it';
+import { pl } from '../../src/i18n/pl';
+import { pt } from '../../src/i18n/pt';
+import { ru } from '../../src/i18n/ru';
 import { tr } from '../../src/i18n/tr';
+
+const DICTS: Record<Lang, Record<TextKey, string>> = { en, tr, de, es, fr, it, pl, pt, ru, id };
+const KEYS = Object.keys(en) as TextKey[];
 
 const placeholders = (s: string) => [...s.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort();
 
-test('Turkish has exactly the English keys', () => {
-  assert.deepEqual(Object.keys(tr).sort(), Object.keys(en).sort());
+test('every language has a dictionary', () => {
+  assert.deepEqual(Object.keys(DICTS).sort(), [...LANGUAGES].sort());
 });
 
-test('every Turkish string uses the same placeholders as its English source', () => {
-  for (const key of Object.keys(en) as TextKey[]) {
-    assert.deepEqual(placeholders(tr[key]), placeholders(en[key]), key);
-    assert.ok(tr[key].trim().length > 0, `${key} is empty`);
-  }
+for (const lang of LANGUAGES) {
+  const dict = DICTS[lang];
+
+  test(`${lang}: exactly the English keys`, () => {
+    assert.deepEqual(Object.keys(dict).sort(), Object.keys(en).sort());
+  });
+
+  test(`${lang}: every string is non-empty and uses the same placeholders as its English source`, () => {
+    for (const key of KEYS) {
+      assert.equal(typeof dict[key], 'string', key);
+      assert.ok(dict[key].trim().length > 0, `${lang} ${key} is empty`);
+      assert.deepEqual(placeholders(dict[key]), placeholders(en[key]), `${lang} ${key}`);
+    }
+  });
+
+  test(`${lang}: all-caps English copy is all-caps here too (in the language's own upper case)`, () => {
+    const locale = LANGUAGE_LOCALES[lang];
+    for (const key of KEYS) {
+      const src = en[key].replace(/\{\w+\}/g, '');
+      if (!/[A-Z]/.test(src) || src !== src.toUpperCase()) continue;
+      const text = dict[key].replace(/\{\w+\}/g, '');
+      assert.equal(text, text.toLocaleUpperCase(locale), `${lang} ${key}: ${dict[key]}`);
+    }
+  });
+
+  test(`${lang}: line breaks match the English source`, () => {
+    for (const key of KEYS) {
+      assert.equal(dict[key].split('\n').length, en[key].split('\n').length, `${lang} ${key}`);
+    }
+  });
+}
+
+test('the new keys are in every language: error.recovered', () => {
+  for (const lang of LANGUAGES) assert.ok(DICTS[lang]['error.recovered'].length > 10, lang);
 });
 
 test('English campaign copy matches the level data', () => {
@@ -42,6 +84,21 @@ test('t fills placeholders and formats decimals per language', () => {
   assert.equal(fmt(3), '3,0');
   setLanguage('en');
   assert.equal(fmt(3), '3.0');
+});
+
+test('fmt uses each language\'s decimal separator and keeps toFixed rounding', () => {
+  const comma: Lang[] = ['tr', 'de', 'es', 'fr', 'it', 'pl', 'pt', 'ru', 'id'];
+  for (const lang of LANGUAGES) {
+    setLanguage(lang);
+    const sep = comma.includes(lang) ? ',' : '.';
+    assert.equal(decimalSeparator(), sep, lang);
+    assert.equal(fmt(2.5), `2${sep}5`, lang);
+    assert.equal(fmt(1.25, 2), `1${sep}25`, lang);
+    assert.equal(fmt(1234.5), `1234${sep}5`, `${lang}: no digit grouping`);
+    assert.equal(fmt(-0.25), (-0.25).toFixed(1).replace('.', sep), lang);
+    assert.equal(t('hud.fixIt', { hazard: 'X', secs: 3.5 }).includes(`3${sep}5`), true, lang);
+  }
+  setLanguage('en');
 });
 
 test('device language detection', () => {

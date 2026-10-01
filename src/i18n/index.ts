@@ -6,16 +6,24 @@
  * Pure module: the language is set by the app from the save or the device.
  */
 
+import { de } from './de';
 import { en } from './en';
 import type { TextKey } from './en';
+import { es } from './es';
+import { fr } from './fr';
+import { id } from './id';
+import { it } from './it';
 import { LANGUAGE_LOCALES } from './languages';
 import type { Lang } from './languages';
+import { pl } from './pl';
+import { pt } from './pt';
+import { ru } from './ru';
 import { tr } from './tr';
 
 export type { Lang, TextKey };
 export { LANGUAGES, LANGUAGE_NAMES, LANGUAGE_LOCALES, detectLanguage, isLang, languageOfTag } from './languages';
 
-const DICTS: Partial<Record<Lang, Record<TextKey, string>>> = { en, tr };
+const DICTS: Record<Lang, Record<TextKey, string>> = { en, tr, de, es, fr, it, pl, pt, ru, id };
 
 let current: Lang = 'en';
 const listeners = new Set<(l: Lang) => void>();
@@ -66,7 +74,7 @@ export function fmt(n: number, digits = 1): string {
 }
 
 export function t(key: TextKey, params?: TextParams): string {
-  const raw = DICTS[current]?.[key] ?? en[key] ?? key;
+  const raw = DICTS[current][key] ?? en[key] ?? key;
   if (!params) return raw;
   return raw.replace(/\{(\w+)\}/g, (m, name: string) => {
     const v = params[name];

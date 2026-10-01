@@ -246,6 +246,7 @@ export const en = {
   'save.active-dropped': 'Your unfinished game could not be restored.',
   'save.resumeFailed': 'The saved game cannot be continued in this version. Your stars and records are safe.',
   'save.ok': 'OK',
+  'error.recovered': 'Something went wrong. The game recovered and your progress is safe.',
 
   // --- campaign content (English is the source in levels.ts; listed for completeness) ---------
   'level.1.name': 'FIRST SHIPMENT',
