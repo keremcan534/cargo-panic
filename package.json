@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
     "preview": "vite preview",
     "validate": "tsx scripts/validate-levels.ts",
     "validate:endless": "tsx scripts/validate-endless.ts",
@@ -18,7 +19,8 @@
     "store:video": "tsx marketing/render.ts",
     "store:stills": "tsx marketing/stills.ts",
     "store:android-icons": "tsx marketing/android-icons.ts",
-    "store:assets": "npm run store:capture && npm run store:video && npm run store:stills"
+    "store:assets": "npm run store:capture && npm run store:video && npm run store:stills",
+    "android": "npm run build && cap sync android"
   },
   "devDependencies": {
     "@capacitor/cli": "8.5.2",
