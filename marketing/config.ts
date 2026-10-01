@@ -49,13 +49,21 @@ export const BRAND = {
   studio: 'BLACKBLUE STUDIOS',
 };
 
-/** The game language for captures and store images: STORE_LANG=tr npm run store:stills. */
-export const LANG = (typeof process !== 'undefined' && process.env.STORE_LANG === 'tr' ? 'tr' : 'en') as 'en' | 'tr';
+/** The listing languages: the game's language code and the Play Store locale folder. */
+export const LOCALES = {
+  en: 'en-US', tr: 'tr-TR', de: 'de-DE', es: 'es-ES', fr: 'fr-FR',
+  it: 'it-IT', pl: 'pl-PL', pt: 'pt-BR', ru: 'ru-RU', id: 'id',
+} as const;
+export type Lang = keyof typeof LOCALES;
+
+/** The game language for captures and store images: STORE_LANG=de npm run store:stills. */
+const ENV_LANG = typeof process !== 'undefined' ? process.env.STORE_LANG : undefined;
+export const LANG: Lang = ENV_LANG && ENV_LANG in LOCALES ? (ENV_LANG as Lang) : 'en';
 /** Recordings for another language go to out/clips-<lang>; English keeps out/clips. */
 export const CLIP_DIR = LANG === 'en' ? 'clips' : `clips-${LANG}`;
 
 export const STORE = {
-  locale: LANG === 'tr' ? 'tr-TR' : 'en-US',
+  locale: LOCALES[LANG],
   screenshot: { width: 1920, height: 1080 },
   feature: { width: 1024, height: 500 },
   icon: 512,
