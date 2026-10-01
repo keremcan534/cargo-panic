@@ -15,7 +15,7 @@ toplamayan) için doğrudur. Ayrıntılı süreç: [`RELEASE.md`](RELEASE.md).
   | `CARGO_PANIC_KEY_ALIAS` | `upload` |
   | `CARGO_PANIC_KEY_PASSWORD` | Anahtar şifresi (PKCS12'de depo şifresiyle aynı) |
 
-- [ ] Actions → **Release bundle** → Run workflow (main) → çıkan `app-release.aab` dosyasını indir.
+- [ ] İlk sürüm (1.0.0, versionCode 73) hazır `.aab` olarak verildi. Sonraki sürümler: `package.json` sürümünü yükselt, main'e birleştir, sonra Actions → **Release bundle** → Run workflow (main) → çıkan `app-release.aab` dosyasını indir. Main'de yeni commit yoksa iş akışı yine 73 üretir ve Play bunu reddeder.
 - [ ] `npm run store:pack` → `marketing/out/store/`: görsel zip'i, `translations.csv`, `release-notes.txt`.
 - [ ] Videoyu YouTube'a yükle: Liste dışı (Unlisted) ya da Herkese açık, para kazanma kapalı, yerleştirmeye izin ver, yaş kısıtlaması yok. Bağlantıyı not al.
 

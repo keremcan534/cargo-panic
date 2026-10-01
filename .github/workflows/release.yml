@@ -2,8 +2,8 @@ name: Release bundle
 
 # Builds the signed Android App Bundle (.aab) that Google Play takes: from a version tag (v1.0.0) or by hand
 # (Actions → Release bundle → Run workflow, on main). The upload key comes from the repository's secrets
-# (docs/RELEASE.md says how to make it and which secrets to add). Releases are built from main or a tag only, so
-# their numbers only ever go up.
+# (docs/RELEASE.md says how to make it and which secrets to add). Releases are built only from commits on main
+# (a run on main, or a tag on one of main's commits), so their numbers only ever go up.
 on:
   workflow_dispatch:
   push:
@@ -41,9 +41,17 @@ jobs:
             exit 1
           fi
 
-      # Google Play takes each upload only numbered higher than the last: main's commit count only ever grows.
+      # Google Play takes each upload only numbered higher than the last: main's commit count only ever grows. A tag
+      # on a commit outside main would count another branch's commits and could jump far ahead of main, after which
+      # Play would refuse every main build until main caught up, so such a tag is refused here.
       - name: Number the build
-        run: echo "CARGO_PANIC_VERSION_CODE=$(git rev-list --count HEAD)" >> "$GITHUB_ENV"
+        run: |
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "::error::Release builds must come from a commit on main. Tag one of main's commits: git switch main && git pull && git tag vX.Y.Z && git push origin vX.Y.Z"
+            exit 1
+          fi
+          echo "CARGO_PANIC_VERSION_CODE=$(git rev-list --count HEAD)" >> "$GITHUB_ENV"
 
       - uses: actions/setup-node@v5
         with:
