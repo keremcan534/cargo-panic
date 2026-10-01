@@ -46,6 +46,8 @@
       .textbox.top { top: 70px; left: 0; right: 0; transform: none; display: flex; justify-content: center; }
       .title .lines { font-weight: 900; font-stretch: 78%; line-height: .92; text-transform: uppercase; letter-spacing: -.005em; }
       .mask { display: inline-block; overflow: hidden; vertical-align: top; white-space: nowrap; padding: 0 .03em .07em; margin: 0 -.03em -.07em; }
+      /* Room above the cap height for accents (Ä, É, İ, Ó, Й, Ё); the negative margin keeps the layout unchanged. */
+      .title .lines .mask { padding-top: .3em; margin-top: -.3em; }
       .l { display: inline-block; white-space: pre; }
       .title .bar { height: 14px; width: 220px; margin-top: 30px; transform-origin: left center; border-radius: 7px; }
       .title .sub { margin-top: 28px; font-size: 46px; font-weight: 600; color: #b6c4d6; line-height: 1.2; }

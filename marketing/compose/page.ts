@@ -91,12 +91,15 @@ function makeTitle(parent: HTMLElement, text: string, sub: string | undefined, o
     }
     lines.append(document.createTextNode(' '));
   }
+  // Capitals with marks (Ä, É, İ, Ş, Й, Ё...) need more room between the lines than the tight .92.
+  const lineHeight = /\p{M}/u.test(text.toLocaleUpperCase().normalize('NFD')) ? 1.08 : 0.92;
+  lines.style.lineHeight = String(lineHeight);
   // Largest size up to opts.size that keeps every word on the line and at most 3 lines.
   let size = opts.size;
   for (; size > 40; size -= 4) {
     lines.style.fontSize = `${size}px`;
     const tooWide = [...lines.querySelectorAll<HTMLElement>('.mask')].some((m) => m.offsetWidth > opts.width);
-    const rows = Math.round(lines.offsetHeight / (size * 0.92));
+    const rows = Math.round(lines.offsetHeight / (size * lineHeight));
     if (!tooWide && rows <= 3) break;
   }
   lines.style.fontSize = `${size}px`;
