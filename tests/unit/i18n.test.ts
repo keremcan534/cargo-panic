@@ -47,7 +47,8 @@ test('t fills placeholders and formats decimals per language', () => {
 test('device language detection', () => {
   assert.equal(detectLanguage(['tr-TR', 'en-US']), 'tr');
   assert.equal(detectLanguage('en-GB'), 'en');
-  assert.equal(detectLanguage(['de-DE', 'tr']), 'tr');
-  assert.equal(detectLanguage(['fr-FR']), 'en');
+  assert.equal(detectLanguage(['de-DE', 'tr']), 'de');
+  assert.equal(detectLanguage(['ja-JP', 'tr']), 'tr');
+  assert.equal(detectLanguage(['ja-JP']), 'en');
   assert.equal(detectLanguage(undefined), 'en');
 });

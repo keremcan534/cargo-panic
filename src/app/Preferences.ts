@@ -43,7 +43,7 @@ export function onSystemMotionChange(fn: () => void): () => void {
   }
 }
 
-/** The saved language, or the device's (Turkish for a Turkish device, English otherwise). */
+/** The saved language, or the device's first one the game speaks (English when none). */
 export function effectiveLanguage(): Lang {
   const saved = progress.settings.language;
   if (saved) return saved;
