@@ -156,8 +156,6 @@ export const tr: Record<TextKey, string> = {
   'settings.off': 'KAPALI',
   'settings.language': 'DİL',
   'settings.languageSystem': 'SİSTEM',
-  'settings.languageEn': 'ENGLISH',
-  'settings.languageTr': 'TÜRKÇE',
   'settings.sound': 'SES',
   'settings.vibration': 'TİTREŞİM',
   'settings.close': 'TAMAM',

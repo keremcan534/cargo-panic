@@ -157,9 +157,7 @@ export const en = {
   'settings.off': 'OFF',
   'settings.language': 'LANGUAGE',
   'settings.languageSystem': 'SYSTEM',
-  // Language names are written in their own language, in both dictionaries.
-  'settings.languageEn': 'ENGLISH',
-  'settings.languageTr': 'TÜRKÇE',
+  // Language names are not here: each is written in itself (src/i18n/languages.ts).
   'settings.sound': 'SOUND',
   'settings.vibration': 'VIBRATION',
   'settings.close': 'DONE',
