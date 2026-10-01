@@ -1,6 +1,10 @@
 /**
  * The one requestAnimationFrame loop in the app. Screens subscribe for game
  * updates; the current Stage draws last. Swapping stages never adds a loop.
+ *
+ * Nothing a frame runs can stop it: a subscriber (or the stage) that throws
+ * is reported through `onError` (the app's recovery, see recovery.ts) and
+ * the other subscribers, the drawing and the next frames carry on.
  */
 
 import { MAX_FRAME_CATCHUP_MS, MAX_STEP_MS } from '../game/config';
@@ -24,6 +28,8 @@ export class FrameLoop {
   private watching = false;
   /** Drawn last each frame. Written only by StageHost (null while a stage is being swapped). */
   stage: Stage | null = null;
+  /** Gets whatever a subscriber or the stage threw during a frame. main.ts points it at the app's recovery. */
+  onError: (error: unknown) => void = (error) => console.error('[cargo-panic] frame callback failed', error);
 
   start() {
     if (this.running) return;
@@ -82,9 +88,31 @@ export class FrameLoop {
     const anim = Math.min(MAX_STEP_MS, raw);
     const real = Math.min(MAX_FRAME_CATCHUP_MS, raw);
     this.frames++;
-    this.stage?.tweens.update(anim);
-    for (const cb of this.callbacks) cb(anim, real);
+    try {
+      this.stage?.tweens.update(anim);
+    } catch (e) {
+      this.report(e);
+    }
+    for (const cb of this.callbacks) {
+      try {
+        cb(anim, real);
+      } catch (e) {
+        this.report(e);
+      }
+    }
     // Re-read: a callback may have swapped the stage; never draw a disposed one.
-    this.stage?.render(anim);
+    try {
+      this.stage?.render(anim);
+    } catch (e) {
+      this.report(e);
+    }
   };
+
+  private report(error: unknown) {
+    try {
+      this.onError(error);
+    } catch {
+      // The reporter itself failed: the loop still runs.
+    }
+  }
 }
