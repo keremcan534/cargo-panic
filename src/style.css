@@ -67,6 +67,10 @@ html, body {
 .btn.md { font-size: clamp(1rem, 4.4vw, 1.35rem); padding: 0 1.3rem; height: clamp(50px, 7.4vh, 64px); width: min(88vw, 470px); }
 .btn.sm { font-size: clamp(.95rem, 3.9vw, 1.15rem); padding: 0 1.1rem; height: 50px; }
 .btn.half { width: calc(min(88vw, 470px) / 2 - 6px); }
+/* A label longer than the button (another language) takes two balanced lines rather than spilling out. */
+.btn.lg, .btn.md { white-space: normal; text-wrap: balance; line-height: 1.1; overflow-wrap: break-word; }
+/* Cyrillic capitals run wide: big buttons keep their labels on one line (ПРОДОЛЖИТЬ - УРОВЕНЬ 25). */
+:lang(ru) .btn.lg { font-size: clamp(1rem, 4.6vw, 1.45rem); padding: 0 1rem; }
 
 .icon-btn {
   pointer-events: auto; width: 48px; height: 48px; border-radius: 14px; border: 0; cursor: pointer;
@@ -145,6 +149,7 @@ html, body {
 }
 .hazard.on { opacity: 1; transform: translate(-50%, 0) scale(1); }
 .hazard .line { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.hazard .text { text-wrap: balance; overflow-wrap: break-word; hyphens: auto; }
 .hazard .warn-icon { flex: 0 0 auto; width: 1.5em; height: 1.5em; display: inline-flex; }
 .hazard .warn-icon svg { width: 100%; height: 100%; }
 .hazard .bar { height: 8px; border-radius: 4px; background: rgba(42,5,3,.45); margin-top: 8px; overflow: hidden; }
@@ -176,7 +181,8 @@ html, body {
 .controls .btn.undo.off { filter: grayscale(.6) brightness(.7); box-shadow: 0 2px 0 rgba(0,0,0,.35); }
 .controls .hint-text { font-size: clamp(.78rem, 3.3vw, .95rem); color: var(--faint); line-height: 1.3; flex: 1; white-space: pre-line; }
 .controls .hint-text.selected { color: #8cc4ff; font-weight: 800; }
-.controls .btn.sm { width: min(30vw, 180px); height: clamp(48px, 7vh, 62px); font-size: clamp(1rem, 4.2vw, 1.35rem); padding: 0 .6rem; }
+/* UNDO / HINT: at least 30vw, wider when the word is (RÜCKGÄNGIG, PODPOWIEDŹ); the spacer column gives way. */
+.controls .btn.sm { width: auto; min-width: min(30vw, 180px); height: clamp(48px, 7vh, 62px); font-size: clamp(.9rem, 4vw, 1.35rem); padding: 0 .6rem; letter-spacing: 0; }
 
 .belt-zone {
   position: absolute; left: 12px; right: 12px; bottom: calc(76px + var(--safe-bottom)); height: 22vh;
@@ -301,7 +307,7 @@ html, body {
 .tile .row i svg { width: 100%; height: 100%; }
 .tile .lock { width: 30%; height: 30%; }
 .levels .foot { display: flex; flex-direction: column; align-items: center; gap: 8px; }
-.levels .foot .hint { color: var(--faint); font-size: .85rem; }
+.levels .foot .hint { color: var(--faint); font-size: .85rem; text-align: center; max-width: min(92vw, 520px); }
 
 .dim-3d { position: absolute; inset: 0; background: rgba(5,8,13,.55); }
 
@@ -349,6 +355,8 @@ html, body {
 .setting-note { color: var(--faint); font-size: clamp(.78rem, 3.2vw, .95rem); text-align: left; line-height: 1.3; }
 .card .actions .row.toggles { gap: 12px; }
 .card .actions .btn.sm.half { width: calc(min(88vw, 470px) / 2 - 6px); height: 48px; font-size: clamp(.8rem, 3.4vw, 1rem); }
+/* SOUND: OFF / VIBRATION: OFF may need two lines (VIBRATIONS : NON in French). */
+.card .actions .row.toggles .btn { white-space: normal; line-height: 1.1; padding: 0 .6rem; }
 .btn:disabled { filter: grayscale(.6) brightness(.7); cursor: default; }
 .btn:disabled:active { transform: none; }
 .modal.pause .card, .modal.settings .card { gap: 8px; }
@@ -447,6 +455,21 @@ html, body {
   border-left: 13px solid transparent; border-right: 13px solid transparent; border-bottom: 20px solid var(--gold);
   filter: drop-shadow(0 2px 0 rgba(0,0,0,.6)); }
 .tip.cargo-first { border-color: var(--gold); }
+
+/* ------------------------------------------------------- long languages */
+/*
+ * German, Russian, Polish, French... run 20-40% longer than English. Short
+ * lines (titles, captions, notes) wrap into balanced lines instead of leaving
+ * one word alone, and running text hyphenates by the page language
+ * (<html lang> is the language in force).
+ */
+.menu .tagline, .menu .caption, .levels .head h1, .levels .head .stars, .levels .foot .hint,
+.card .kicker, .card .headline, .card .note, .card h3, .hud .title, .hud .subtitle,
+.wave-card .t, .save-banner, .menu .save-warning { text-wrap: balance; overflow-wrap: break-word; }
+.card .body, .tip, .notice, .suggest .text, .setting-note, .hud .objective, .controls .hint-text,
+.tutorial .tut-text, .legend .desc, .card .stat .k, .view-settings .label {
+  overflow-wrap: break-word; hyphens: auto; -webkit-hyphens: auto;
+}
 
 /* ------------------------------------------------------- reduced motion */
 /*
