@@ -274,9 +274,13 @@ for (const [w, h] of VIEWPORTS) {
     test('a tipped rack collapses', async ({ page }) => {
       const errors: string[] = [];
       await open(page, 'level=4', errors);
+      // The first crate starts a 3 s countdown: hold the rules clocks while placing, or a slow
+      // machine lets the rack fall before the second drag lands (the test would race the clock).
+      await harness(page, (hh) => hh.setClocks(false));
       await drag(page, 0, { shelf: 0, slot: 4 });
       await drag(page, 1, { shelf: 0, slot: 3 });
       expect(await harness(page, (hh) => hh.session.evaluation.status)).toBe('danger');
+      await harness(page, (hh) => hh.setClocks(true));
       expect(await waitOutcome(page)).toBe('failed:balance');
       await harness(page, (hh) => hh.freeze());
       await harness(page, (hh) => hh.step(16, 40));
@@ -287,9 +291,11 @@ for (const [w, h] of VIEWPORTS) {
     test('fragile cargo shatters under a heavy crate', async ({ page }) => {
       const errors: string[] = [];
       await open(page, 'level=8', errors);
+      await harness(page, (hh) => hh.setClocks(false)); // as above: placing must not race the countdown
       await drag(page, 0, { shelf: 0, slot: 2 });
       await drag(page, 1, { shelf: 1, slot: 2 });
       expect(await harness(page, (hh) => hh.session.evaluation.crushed)).toEqual([0]);
+      await harness(page, (hh) => hh.setClocks(true));
       expect(await waitOutcome(page)).toBe('failed:fragile');
       await harness(page, (hh) => hh.freeze());
       await harness(page, (hh) => hh.step(16, 7));

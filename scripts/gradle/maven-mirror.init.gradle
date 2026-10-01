@@ -1,0 +1,34 @@
+// Gradle init script: fetch Maven Central's artifacts from Google's mirror of it.
+//
+// Maven Central sometimes answers HTTP 429 (too many requests) to busy CI runners and shared networks. This script
+// points every mavenCentral() repository (settings, plugin management, buildscript and project repositories) at
+// Google's public mirror of the same artifacts, without changing the project. google() and every other repository
+// are left as they are. Use it when Central refuses:
+//
+//   cd android
+//   ./gradlew --init-script ../scripts/gradle/maven-mirror.init.gradle assembleDebug
+//
+// To use it for every build on a machine, copy it into ~/.gradle/init.d/.
+
+def centralMirror = 'https://maven-central.storage-download.googleapis.com/maven2/'
+def centralHosts = ['repo.maven.apache.org', 'repo1.maven.org']
+
+def redirectCentral = { RepositoryHandler repositories ->
+    repositories.withType(MavenArtifactRepository).configureEach { repository ->
+        if (repository.url != null && centralHosts.contains(repository.url.host)) {
+            logger.info("maven-mirror: ${repository.name} ${repository.url} -> ${centralMirror}")
+            repository.url = centralMirror
+        }
+    }
+}
+
+beforeSettings { settings ->
+    redirectCentral(settings.pluginManagement.repositories)
+    redirectCentral(settings.dependencyResolutionManagement.repositories)
+    redirectCentral(settings.buildscript.repositories)
+}
+
+allprojects { project ->
+    redirectCentral(project.buildscript.repositories)
+    redirectCentral(project.repositories)
+}

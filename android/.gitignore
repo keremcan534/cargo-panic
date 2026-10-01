@@ -57,6 +57,10 @@ captures/
 *.jks
 *.keystore
 keystore.properties
+# Except the shared debug key (alias androiddebugkey, passwords "android"): every debug build, from CI or any
+# machine, is signed with it, so a new debug APK installs over the last one and keeps the saved game. It is public
+# on purpose and must never sign a release; the Play upload key stays out of the repository.
+!app/debug.keystore
 
 # External native build folder generated in Android Studio 2.2 and later
 .externalNativeBuild

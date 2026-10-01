@@ -157,13 +157,14 @@ export const en = {
   'settings.off': 'OFF',
   'settings.language': 'LANGUAGE',
   'settings.languageSystem': 'SYSTEM',
-  // Language names are written in their own language, in both dictionaries.
-  'settings.languageEn': 'ENGLISH',
-  'settings.languageTr': 'TÜRKÇE',
+  // Language names are not here: each is written in itself (src/i18n/languages.ts).
   'settings.sound': 'SOUND',
   'settings.vibration': 'VIBRATION',
   'settings.close': 'DONE',
   'settings.tutorial': 'REPLAY TUTORIAL',
+
+  // --- errors -------------------------------------------------------------------
+  'error.recovered': 'Something went wrong. The game recovered and your progress is safe.',
 
   // --- renderer ---------------------------------------------------------------------
   'render.fallback2d': '3D could not start on this device, so the game is in 2D. Nothing was lost.',

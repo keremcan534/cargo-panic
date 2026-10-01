@@ -4,13 +4,15 @@ apply plugin: 'com.android.application'
 def webPackage = new groovy.json.JsonSlurper().parse(file('../../package.json'))
 
 android {
-    namespace = "com.blackbluestudios.cargopanic"
+    namespace = "com.keremcan534.cargopanic"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "com.blackbluestudios.cargopanic"
+        applicationId "com.keremcan534.cargopanic"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
+        // Every upload to Play needs a higher versionCode: CI sets CARGO_PANIC_VERSION_CODE (the CI run number for
+        // debug APKs, main's commit count for release bundles); a local build without it is 1.
+        versionCode = (System.getenv('CARGO_PANIC_VERSION_CODE') ?: '1') as Integer
         versionName webPackage.version
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
@@ -19,10 +21,42 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        // The shared debug key, committed (android/app/debug.keystore): every debug build, from CI or any machine,
+        // installs over the last one and keeps the saved game. It is public, so it must never sign a release.
+        debug {
+            storeFile = file('debug.keystore')
+            storePassword = 'android'
+            keyAlias = 'androiddebugkey'
+            keyPassword = 'android'
+        }
+        // The upload key Google Play knows the game by: secret, never in the repository. CI unpacks it from the
+        // repository's secrets (.github/workflows/release.yml); a desktop build reads the same variables.
+        // Without them a release build is left unsigned.
+        if (System.getenv('CARGO_PANIC_KEYSTORE_FILE')) {
+            def missing = ['CARGO_PANIC_KEYSTORE_PASSWORD', 'CARGO_PANIC_KEY_ALIAS', 'CARGO_PANIC_KEY_PASSWORD']
+                .findAll { !System.getenv(it) }
+            if (missing) {
+                throw new GradleException("CARGO_PANIC_KEYSTORE_FILE is set, but not ${missing.join(', ')}.")
+            }
+            release {
+                storeFile = file(System.getenv('CARGO_PANIC_KEYSTORE_FILE'))
+                storePassword = System.getenv('CARGO_PANIC_KEYSTORE_PASSWORD')
+                keyAlias = System.getenv('CARGO_PANIC_KEY_ALIAS')
+                keyPassword = System.getenv('CARGO_PANIC_KEY_PASSWORD')
+            }
+        }
+    }
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.debug
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (System.getenv('CARGO_PANIC_KEYSTORE_FILE')) {
+                signingConfig = signingConfigs.release
+            }
         }
     }
 }

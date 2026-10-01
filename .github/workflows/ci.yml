@@ -87,9 +87,11 @@ jobs:
       - name: Build the game into the Android project
         run: npm run android
 
+      # Signed with the shared debug key (android/app/debug.keystore), so it installs over the last CI APK. Maven
+      # Central through Google's mirror (scripts/gradle/maven-mirror.init.gradle): Central sometimes answers HTTP 429.
       - name: Build the APK
         working-directory: android
-        run: ./gradlew --no-daemon assembleDebug
+        run: ./gradlew --no-daemon --init-script ../scripts/gradle/maven-mirror.init.gradle assembleDebug
 
       - name: Upload the APK
         uses: actions/upload-artifact@v4

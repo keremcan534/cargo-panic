@@ -97,4 +97,22 @@ export class Router {
     this.currentScreen = factory(this.ctx);
     this.currentScreen.enter();
   }
+
+  /**
+   * After an unexpected error (recovery.ts): leaves the current screen in
+   * whatever state the error left it - its exit still runs, so a game is
+   * saved as the one to resume, but an exit that throws too does not stop
+   * the change - and enters `factory` instead of anything pending.
+   */
+  reset(factory: ScreenFactory) {
+    const leaving = this.currentScreen;
+    this.currentScreen = null;
+    this.pending = null;
+    try {
+      leaving?.exit();
+    } catch (e) {
+      console.error('[cargo-panic] screen could not exit cleanly', e);
+    }
+    this.go(factory);
+  }
 }

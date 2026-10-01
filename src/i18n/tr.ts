@@ -156,12 +156,13 @@ export const tr: Record<TextKey, string> = {
   'settings.off': 'KAPALI',
   'settings.language': 'DİL',
   'settings.languageSystem': 'SİSTEM',
-  'settings.languageEn': 'ENGLISH',
-  'settings.languageTr': 'TÜRKÇE',
   'settings.sound': 'SES',
   'settings.vibration': 'TİTREŞİM',
   'settings.close': 'TAMAM',
   'settings.tutorial': 'REHBERİ TEKRAR GÖSTER',
+
+  // --- errors -------------------------------------------------------------------
+  'error.recovered': 'Bir şeyler ters gitti. Oyun toparlandı, ilerlemen güvende.',
 
   // --- renderer ---------------------------------------------------------------------
   'render.fallback2d': '3D bu cihazda başlatılamadı, oyun 2D açıldı. Hiçbir şey kaybolmadı.',
