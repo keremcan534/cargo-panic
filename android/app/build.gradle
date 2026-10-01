@@ -4,10 +4,10 @@ apply plugin: 'com.android.application'
 def webPackage = new groovy.json.JsonSlurper().parse(file('../../package.json'))
 
 android {
-    namespace = "com.blackbluestudios.cargopanic"
+    namespace = "com.keremcan534.cargopanic"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "com.blackbluestudios.cargopanic"
+        applicationId "com.keremcan534.cargopanic"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

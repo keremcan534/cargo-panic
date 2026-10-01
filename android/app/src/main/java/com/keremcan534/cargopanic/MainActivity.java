@@ -1,4 +1,4 @@
-package com.blackbluestudios.cargopanic;
+package com.keremcan534.cargopanic;
 
 import com.getcapacitor.BridgeActivity;
 
