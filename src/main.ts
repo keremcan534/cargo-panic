@@ -4,8 +4,9 @@
  * that preference is 3D - see render/createStage.ts), then starts the frame
  * loop and the screens. Then the save notices (anything the player must
  * know about their save) and the app lifecycle: hidden / shown / Android
- * back go to App (see platform/lifecycle.ts). Plus the browser gesture
- * lockdown a full-screen touch game needs.
+ * back go to App (see platform/lifecycle.ts). Plus the recovery from an
+ * unexpected error (app/recovery.ts: back to the menu, progress kept) and
+ * the browser gesture lockdown a full-screen touch game needs.
  *
  * Nothing in this module's static import graph reaches three.js; the
  * architecture test checks that.
@@ -14,6 +15,7 @@
 import './style.css';
 import { App } from './app/App';
 import { FrameLoop } from './app/FrameLoop';
+import { installRecovery } from './app/recovery';
 import { StageHost } from './app/StageHost';
 import { audio } from './game/systems/AudioManager';
 import { progress } from './game/systems/ProgressManager';
@@ -26,6 +28,7 @@ import type { ScreenRect, StageOptions } from './render/Stage';
 import type { ThreeStage } from './render/three/ThreeStage';
 import { showNotice } from './ui/Notice';
 import { showBootNotices, watchSaveHealth } from './ui/SaveNotices';
+import { menuScreen } from './ui/Menu';
 import { splashScreen } from './ui/Splash';
 
 function stageOptions(): StageOptions {
@@ -57,6 +60,8 @@ interface AppProbe {
   readonly hidden: boolean;
   /** Where the title screen's hero rack is drawn (CSS px), or null when it is not. */
   readonly heroRect: ScreenRect | null;
+  /** Raises an error from the game's own code, for the recovery tests: in a frame callback, a task or a promise. */
+  throwIn(where: 'frame' | 'task' | 'promise'): void;
 }
 
 declare global {
@@ -81,6 +86,20 @@ async function boot() {
     bootSplash.classList.add('hidden');
     window.setTimeout(() => bootSplash.remove(), 500);
   }
+
+  // An unexpected error anywhere: log it once, save, back to the menu with a notice; a crash loop holds (recovery.ts).
+  const recovery = installRecovery(
+    window,
+    {
+      flush: () => progress.flush(),
+      toMenu: () => app.router.reset(menuScreen),
+      notify: () => showNotice(t('error.recovered')),
+      log: (error, action) =>
+        console.error(`[cargo-panic] unexpected error (${action === 'hold' ? 'repeated; staying put' : 'recovered'})`, error),
+    },
+    { origin: window.location.origin },
+  );
+  loop.onError = (error) => recovery.report(error);
 
   app.start();
   app.router.go(splashScreen);
@@ -137,6 +156,21 @@ async function boot() {
       },
       get heroRect() {
         return host.stageOrNull?.heroRect?.() ?? null;
+      },
+      throwIn(where: 'frame' | 'task' | 'promise') {
+        const error = new Error(`e2e: thrown in a ${where}`);
+        if (where === 'frame') {
+          const off = loop.onFrame(() => {
+            off();
+            throw error;
+          });
+        } else if (where === 'task') {
+          window.setTimeout(() => {
+            throw error;
+          }, 0);
+        } else {
+          void Promise.reject(error);
+        }
       },
     });
     // GPU resource counts, to catch leaks across screens (3D only; 2D reports the mode and frames).
