@@ -16,6 +16,10 @@ marketing/out/
 # exception is the shared debug key, android/app/debug.keystore: public on purpose so every debug APK installs over
 # the last one; it must never sign a release.
 *.jks
+*.jks.b64
 *.keystore
+*.p12
+*.pfx
+*KEYSTORE_BASE64*
 keystore.properties
 !android/app/debug.keystore

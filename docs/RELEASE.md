@@ -114,15 +114,20 @@ The "Release bundle" workflow stops with an error naming any secret that is miss
 
 ### 2. Build the signed bundle
 
-- On GitHub: Actions → **Release bundle** → Run workflow (branch `main`), or push a tag:
-  `git tag v1.0.1 && git push origin v1.0.1`.
+- On GitHub: Actions → **Release bundle** → Run workflow (branch `main`), or tag one of main's commits:
+  `git switch main && git pull && git tag v1.0.1 && git push origin v1.0.1`.
+  The workflow refuses a commit that is not on main.
 - The artifact is `cargo-panic-<ref>-<versionCode>`, containing `app-release.aab`.
 - The versionCode is `git rev-list --count HEAD` on main, so it only goes up.
-- On your own machine, if you prefer:
+- **The first bundle (1.0.0) was uploaded as versionCode 73**, main's commit count when it was built. Play never
+  takes the same number twice, so the next bundle needs at least one new commit on main (the version bump below
+  is one). A run on main without new commits gives 73 again and Play refuses it.
+- On your own machine, if you prefer (from a commit on main):
 
 ```bash
 export CARGO_PANIC_KEYSTORE_FILE=/path/to/cargo-panic-upload.jks
 export CARGO_PANIC_KEYSTORE_PASSWORD=… CARGO_PANIC_KEY_ALIAS=upload CARGO_PANIC_KEY_PASSWORD=…
+git switch main && git pull                     # the number must be main's commit count
 export CARGO_PANIC_VERSION_CODE=$(git rev-list --count HEAD)
 npm ci && npm run android
 cd android && ./gradlew bundleRelease          # if Maven Central answers 429:
@@ -138,7 +143,7 @@ cd android && ./gradlew bundleRelease          # if Maven Central answers 429:
 
 ### 4. Later updates
 
-- Raise `package.json` `version`, write new `changelogs/default.txt`, then run **Release bundle** again; the versionCode rises by itself.
+- Raise `package.json` `version`, write new `changelogs/default.txt`, merge to main, then run **Release bundle** again; the versionCode rises by itself.
 - Never change the package name or lose the upload key.
 - Changes to the store text or images don't need a new bundle: edit them in the Play Console or with `fastlane supply`.
 - If ads, analytics or purchases are ever added, update the privacy policy, Data safety, "Contains ads", the advertising ID declaration and the target audience **before** that release.
