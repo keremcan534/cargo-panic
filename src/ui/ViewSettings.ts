@@ -1,7 +1,8 @@
 /**
  * The settings rows shared by the pause panel and the main menu's settings
  * panel: VIEW (2D | 3D), 3D QUALITY (AUTO | LOW | HIGH), REDUCED MOTION
- * (SYSTEM | ON | OFF) and LANGUAGE (SYSTEM | ENGLISH | TÜRKÇE).
+ * (SYSTEM | ON | OFF) and LANGUAGE (a button naming the language in force
+ * that opens the list: SYSTEM and every language, each named in itself).
  *
  * The section shows the renderer actually drawing (which can be 2D while the
  * stored preference is 3D, when 3D could not start), hides the quality row
@@ -14,7 +15,7 @@ import type { AppContext } from '../app/Router';
 import type { HostEvent } from '../app/StageHost';
 import type { LanguagePref } from '../game/save/schema';
 import { progress } from '../game/systems/ProgressManager';
-import { t } from '../i18n';
+import { LANGUAGES as LANGUAGE_CODES, LANGUAGE_NAMES, t } from '../i18n';
 import type { TextKey } from '../i18n';
 import type { RenderMode } from '../render/GameView';
 import type { QualityPref } from '../render/Stage';
@@ -69,13 +70,6 @@ const MOTIONS: Option<MotionValue>[] = [
   { value: 'off', label: 'settings.off' },
 ];
 
-/** Language names are written in their own language. */
-const LANGUAGES: Option<LanguageValue>[] = [
-  { value: 'system', label: 'settings.languageSystem' },
-  { value: 'en', label: 'settings.languageEn' },
-  { value: 'tr', label: 'settings.languageTr' },
-];
-
 const motionValue = (v: boolean | null): MotionValue => (v === null ? 'system' : v ? 'on' : 'off');
 const motionPref = (v: MotionValue): boolean | null => (v === 'system' ? null : v === 'on');
 
@@ -122,6 +116,110 @@ function segmented<T extends string>(role: string, options: Option<T>[], onPick:
   };
 }
 
+/**
+ * LANGUAGE: a button naming the choice in force (aria-expanded) that opens a
+ * list right under its row - SYSTEM, then every language written in itself
+ * (and marked with its own lang, so it is read and hyphenated as such). The
+ * list is a radio group: arrow keys move between options, Enter / Space
+ * picks, Escape closes it without leaving the panel. A pick closes the list
+ * and applies at once (the screen may re-render in the new language).
+ */
+function languagePicker(onPick: (v: LanguageValue) => void) {
+  const values: LanguageValue[] = ['system', ...LANGUAGE_CODES];
+  const nameOf = (v: LanguageValue) => (v === 'system' ? t('settings.languageSystem') : LANGUAGE_NAMES[v]);
+  const listId = `lang-list-${Math.random().toString(36).slice(2, 8)}`;
+
+  const current = el('span', { class: 'lang-name' });
+  const chevron = el('span', { class: 'lang-chevron', html: '<svg viewBox="0 0 12 8" aria-hidden="true"><path d="M1 1.5 6 6.5 11 1.5"/></svg>' });
+  const toggle = el('button', { class: 'lang-btn' }, [current, chevron]);
+  toggle.type = 'button';
+  toggle.dataset.role = 'language-toggle';
+  toggle.setAttribute('aria-expanded', 'false');
+  toggle.setAttribute('aria-controls', listId);
+  toggle.setAttribute('aria-haspopup', 'true');
+
+  const options = values.map((v) => {
+    const b = el('button', { class: 'lang-opt', text: nameOf(v) });
+    b.type = 'button';
+    b.dataset.value = v;
+    b.setAttribute('role', 'radio');
+    if (v !== 'system') b.lang = v;
+    b.addEventListener('pointerdown', () => audio.unlock());
+    b.addEventListener('click', () => {
+      setOpen(false);
+      if (b.getAttribute('aria-checked') === 'true') return;
+      audio.click();
+      haptics.tap();
+      onPick(v);
+    });
+    return b;
+  });
+  const list = el('div', { class: 'lang-list', id: listId }, options);
+  list.dataset.role = 'language';
+  list.setAttribute('role', 'radiogroup');
+  list.setAttribute('aria-label', t('settings.language'));
+  list.hidden = true;
+
+  function setOpen(open: boolean, focus = true) {
+    if (list.hidden === !open) return;
+    list.hidden = !open;
+    toggle.setAttribute('aria-expanded', String(open));
+    if (open) {
+      const on = options.find((o) => o.getAttribute('aria-checked') === 'true') ?? options[0];
+      if (focus) on.focus({ preventScroll: true });
+      list.scrollIntoView?.({ block: 'nearest' });
+    } else if (focus && list.contains(document.activeElement)) {
+      toggle.focus({ preventScroll: true });
+    }
+  }
+
+  toggle.addEventListener('pointerdown', () => audio.unlock());
+  toggle.addEventListener('click', () => {
+    audio.click();
+    setOpen(list.hidden);
+  });
+  // Escape closes the list only: stopped here, it never reaches the game's back handling.
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === 'Escape' && !list.hidden) {
+      e.stopPropagation();
+      e.preventDefault();
+      setOpen(false);
+      return;
+    }
+    const i = options.indexOf(document.activeElement as HTMLButtonElement);
+    if (i < 0) return;
+    const step = e.key === 'ArrowDown' || e.key === 'ArrowRight' ? 1 : e.key === 'ArrowUp' || e.key === 'ArrowLeft' ? -1 : 0;
+    const to = e.key === 'Home' ? 0 : e.key === 'End' ? options.length - 1 : step ? (i + step + options.length) % options.length : -1;
+    if (to < 0) return;
+    e.preventDefault();
+    options[to].focus();
+  };
+  list.addEventListener('keydown', onKey);
+  toggle.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !list.hidden) {
+      e.stopPropagation();
+      e.preventDefault();
+      setOpen(false);
+    }
+  });
+
+  return {
+    toggle,
+    list,
+    set(value: LanguageValue) {
+      current.textContent = nameOf(value);
+      toggle.setAttribute('aria-label', `${t('settings.language')}: ${nameOf(value)}`);
+      current.lang = value === 'system' ? '' : value;
+      for (const o of options) {
+        const on = o.dataset.value === value;
+        o.classList.toggle('on', on);
+        o.setAttribute('aria-checked', String(on));
+        o.tabIndex = on ? 0 : -1;
+      }
+    },
+  };
+}
+
 export interface ViewSection {
   readonly el: HTMLElement;
   /** Re-reads mode, quality and busy (called on every host event too). */
@@ -144,22 +242,22 @@ export function viewSection(c: ViewControls, opts: { note?: boolean } = {}): Vie
     c.pickMotion(motionPref(v));
     refresh();
   });
-  const language = segmented('language', LANGUAGES, (v) => {
+  const language = languagePicker((v) => {
     // May re-render the whole screen in the new language (this section included).
     c.pickLanguage(v === 'system' ? null : v);
     refresh();
   });
   motion.row.setAttribute('aria-label', t('settings.motion'));
-  language.row.setAttribute('aria-label', t('settings.language'));
-  const row = (label: string, control: HTMLElement) =>
-    el('div', { class: 'setting' }, [el('div', { class: 'label', text: label }), control]);
+  const row = (label: string, control: HTMLElement, extra = '') =>
+    el('div', { class: `setting ${extra}`.trim() }, [el('div', { class: 'label', text: label }), control]);
   const qualityRow = row(t('settings.quality'), quality.row);
   const root = el('div', { class: 'view-settings' }, [
     row(t('settings.view'), view.row),
     qualityRow,
     opts.note ? el('div', { class: 'setting-note', text: t('settings.viewNote') }) : null,
     row(t('settings.motion'), motion.row),
-    row(t('settings.language'), language.row),
+    row(t('settings.language'), language.toggle, 'language'),
+    language.list,
   ]);
 
   function refresh() {
@@ -168,7 +266,7 @@ export function viewSection(c: ViewControls, opts: { note?: boolean } = {}): Vie
     view.set(mode, busy);
     quality.set(c.quality(), busy);
     motion.set(motionValue(c.motion()), false);
-    language.set(c.language() ?? 'system', false);
+    language.set(c.language() ?? 'system');
     qualityRow.hidden = mode !== '3d';
     root.classList.toggle('busy', busy);
   }

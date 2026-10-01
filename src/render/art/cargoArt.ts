@@ -10,6 +10,29 @@
 import { PACKAGE_SPECS } from '../../game/levels/types';
 import type { PackageType } from '../../game/levels/types';
 
+/**
+ * The canvas text font: the UI's stack (style.css --font). Trebuchet MS and
+ * Segoe UI carry Latin Extended and Cyrillic; where they are missing
+ * (Android) system-ui / sans-serif (Roboto) draws every language's letters.
+ */
+export const ART_FONT = '"Trebuchet MS", "Segoe UI", system-ui, sans-serif';
+
+/**
+ * Sets a bold font of `px` on ctx, shrunk (to no less than 55%) so `text`
+ * fits in `maxWidth`: shelf plaques and tags hold longer words in some
+ * languages (AUSSER BETRIEB, PRIORITÄT, ПРИОРИТЕТ).
+ */
+export function fitFont(ctx: CanvasRenderingContext2D, text: string, px: number, maxWidth: number): number {
+  let size = Math.max(1, Math.round(px));
+  ctx.font = `bold ${size}px ${ART_FONT}`;
+  const w = ctx.measureText(text).width;
+  if (w > maxWidth && w > 0) {
+    size = Math.max(Math.round(px * 0.55), Math.floor((size * maxWidth) / w));
+    ctx.font = `bold ${size}px ${ART_FONT}`;
+  }
+  return size;
+}
+
 export function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   ctx.beginPath();
   ctx.roundRect(x, y, w, h, Math.min(r, w / 2, h / 2));
@@ -53,7 +76,7 @@ function badge(ctx: CanvasRenderingContext2D, w: number, h: number, weight: numb
   ctx.strokeStyle = ring;
   ctx.stroke();
   ctx.fillStyle = '#eef4ff';
-  ctx.font = `bold ${Math.round(r * 1.3)}px "Trebuchet MS", "Segoe UI", sans-serif`;
+  ctx.font = `bold ${Math.round(r * 1.3)}px ${ART_FONT}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(String(weight), cx, cy + r * 0.06);
@@ -270,7 +293,7 @@ export function drawSealedPlaque(ctx: CanvasRenderingContext2D, w: number, h: nu
     ctx.stroke();
   }
   ctx.fillStyle = '#e8b083';
-  ctx.font = `bold ${Math.round(h * 0.26)}px "Trebuchet MS", "Segoe UI", sans-serif`;
+  fitFont(ctx, text, h * 0.26, w - h * 0.4);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(text, w / 2, h / 2);
@@ -286,7 +309,7 @@ export function drawPriorityTag(ctx: CanvasRenderingContext2D, w: number, h: num
   roundRect(ctx, c.width * 0.12, pad, c.width * 0.76, c.height - pad * 2, (c.height - pad * 2) / 2);
   ctx.fill();
   ctx.fillStyle = '#ffc93c';
-  ctx.font = `bold ${Math.round(c.height * 0.56)}px "Trebuchet MS", "Segoe UI", sans-serif`;
+  fitFont(ctx, text, c.height * 0.56, c.width * 0.76 - c.height * 0.5);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(text, c.width / 2, c.height / 2 + 1);
@@ -327,7 +350,7 @@ export function drawShelfLabel(
   ctx.lineWidth = 3;
   ctx.stroke();
   ctx.fillStyle = s.tier === 0 ? '#8fa2ba' : '#4da3ff';
-  ctx.font = `bold ${Math.round(h * 0.38)}px "Trebuchet MS", "Segoe UI", sans-serif`;
+  ctx.font = `bold ${Math.round(h * 0.38)}px ${ART_FONT}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(`x${s.leverage.toFixed(2)}`, pad + pillW / 2, h * 0.51);
@@ -338,7 +361,7 @@ export function drawShelfLabel(
   const color = over ? '#ff5f57' : ratio > 0.75 ? '#f5c451' : '#8fa2ba';
   ctx.textAlign = 'right';
   ctx.fillStyle = color;
-  ctx.font = `bold ${Math.round(h * 0.4)}px "Trebuchet MS", "Segoe UI", sans-serif`;
+  ctx.font = `bold ${Math.round(h * 0.4)}px ${ART_FONT}`;
   const label = `${s.load}/${s.max}`;
   ctx.fillText(label, w - pad, h * 0.51);
   const textW = ctx.measureText(label).width;

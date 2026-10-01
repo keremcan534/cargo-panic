@@ -8,9 +8,9 @@
 import { PACKAGE_SPECS } from '../game/levels/types';
 import type { PackageType } from '../game/levels/types';
 import { audio } from '../game/systems/AudioManager';
-import { formatScore, formatSeed } from '../game/systems/RunManager';
+import { formatSeed } from '../game/systems/RunManager';
 import type { ScoreLine, WaveResult } from '../game/systems/RunManager';
-import { fmt, t } from '../i18n';
+import { fmt, formatScore, t } from '../i18n';
 import { STAR_SVG, btn, el, uiRoot } from './dom';
 import type { BtnStyle } from './dom';
 import { viewSection } from './ViewSettings';

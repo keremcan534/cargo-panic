@@ -118,10 +118,3 @@ export function scoreWave(opts: {
   const total = lines.reduce((n, l) => n + l.value, 0);
   return { lines, total, perfect, clean };
 }
-
-/** Compact display form: 12480 -> "12,480". */
-export function formatScore(n: number): string {
-  return Math.round(n)
-    .toString()
-    .replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-}

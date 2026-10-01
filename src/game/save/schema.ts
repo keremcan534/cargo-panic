@@ -7,12 +7,15 @@
 
 import type { ShipmentSnapshot } from '../session/types';
 import type { RunState } from '../systems/RunManager';
+import { isLang } from '../../i18n/languages';
+import type { Lang } from '../../i18n/languages';
 
 export const SAVE_VERSION = 2;
 
 export type RenderModePref = '2d' | '3d';
 export type QualityPref = 'auto' | 'low' | 'high';
-export type LanguagePref = 'en' | 'tr';
+/** A language the game speaks (see src/i18n/languages.ts). */
+export type LanguagePref = Lang;
 
 export interface Settings {
   sound: boolean;
@@ -146,7 +149,7 @@ function sanitizeSettings(raw: unknown): Settings {
     renderMode: raw.renderMode === '2d' || raw.renderMode === '3d' ? raw.renderMode : d.renderMode,
     quality: raw.quality === 'low' || raw.quality === 'high' || raw.quality === 'auto' ? raw.quality : d.quality,
     reducedMotion: typeof raw.reducedMotion === 'boolean' ? raw.reducedMotion : null,
-    language: raw.language === 'en' || raw.language === 'tr' ? raw.language : null,
+    language: isLang(raw.language) ? raw.language : null,
   };
 }
 

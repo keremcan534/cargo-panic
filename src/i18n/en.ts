@@ -157,9 +157,7 @@ export const en = {
   'settings.off': 'OFF',
   'settings.language': 'LANGUAGE',
   'settings.languageSystem': 'SYSTEM',
-  // Language names are written in their own language, in both dictionaries.
-  'settings.languageEn': 'ENGLISH',
-  'settings.languageTr': 'TÜRKÇE',
+  // Language names are not here: each is written in itself (src/i18n/languages.ts).
   'settings.sound': 'SOUND',
   'settings.vibration': 'VIBRATION',
   'settings.close': 'DONE',
@@ -251,6 +249,7 @@ export const en = {
   'save.active-dropped': 'Your unfinished game could not be restored.',
   'save.resumeFailed': 'The saved game cannot be continued in this version. Your stars and records are safe.',
   'save.ok': 'OK',
+  'error.recovered': 'Something went wrong. The game recovered and your progress is safe.',
 
   // --- campaign content (English is the source in levels.ts; listed for completeness) ---------
   'level.1.name': 'FIRST SHIPMENT',
